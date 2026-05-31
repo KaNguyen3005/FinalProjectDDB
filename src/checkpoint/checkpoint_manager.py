@@ -7,6 +7,13 @@ from src.log.log_record import RecordType, WalWriter
 
 @dataclass
 class CheckpointManager:
+    """Write checkpoint markers into the WAL.
+
+    This simulator keeps checkpoint metadata deliberately small: END_CHECKPOINT
+    only carries the redo LSN. The failure flag is used by demo scenarios to
+    create a BEGIN without a matching END.
+    """
+
     writer: WalWriter
 
     def write_checkpoint(self, *, fail_after_begin: bool = False) -> tuple[int, int | None]:

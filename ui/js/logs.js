@@ -10,10 +10,12 @@ let offset = 0;
 const limit = 50;
 
 function cell(value) {
+  // Render missing page_id values from non-UPDATE records as a dash.
   return value === null || value === undefined ? "-" : value;
 }
 
 async function loadRecords() {
+  // Fetch one paged slice of WAL records; filtering happens on the API side.
   const params = new URLSearchParams({ offset, limit });
   if (nodeFilter.value) params.set("node", nodeFilter.value);
   const res = await fetch(`/api/logs/records?${params}`);

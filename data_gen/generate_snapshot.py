@@ -12,6 +12,7 @@ from src.storage import create_snapshot
 
 
 def main() -> None:
+    """CLI helper for generating only the snapshot file."""
     parser = argparse.ArgumentParser(description="Generate a binary snapshot file.")
     parser.add_argument("--pages", type=int, default=10_000)
     parser.add_argument("--seed", type=int, default=42)

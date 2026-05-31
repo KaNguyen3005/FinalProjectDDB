@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def create_app() -> FastAPI:
+    """Assemble API routers, WebSocket endpoint, and static UI pages."""
     app = FastAPI(title="RTO Disaster Recovery Benchmark")
     app.include_router(demo.router)
     app.include_router(benchmark.router)
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/events")
     async def websocket_events(websocket: WebSocket) -> None:
+        """Keep a client registered so routers can broadcast live events."""
         await manager.connect(websocket)
         try:
             while True:

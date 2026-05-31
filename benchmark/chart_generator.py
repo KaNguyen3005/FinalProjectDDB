@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 def _read_summary(path: Path) -> list[dict[str, float]]:
+    """Load summary.csv rows and coerce numeric strings to floats."""
     with path.open("r", encoding="utf-8", newline="") as fh:
         rows = []
         for row in csv.DictReader(fh):
@@ -14,6 +15,7 @@ def _read_summary(path: Path) -> list[dict[str, float]]:
 
 
 def _scale(value: float, source_min: float, source_max: float, target_min: float, target_max: float) -> float:
+    """Map a value from a data range into an SVG/canvas coordinate range."""
     if source_max == source_min:
         return (target_min + target_max) / 2
     ratio = (value - source_min) / (source_max - source_min)
@@ -21,6 +23,7 @@ def _scale(value: float, source_min: float, source_max: float, target_min: float
 
 
 def _svg_shell(width: int, height: int, title: str, body: str) -> str:
+    """Wrap chart-specific SVG elements in a common dark chart frame."""
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-label="{title}">
   <rect width="100%" height="100%" fill="#0a0c10"/>
   <text x="28" y="34" fill="#e8eaf0" font-family="Arial, sans-serif" font-size="20" font-weight="700">{title}</text>
@@ -30,6 +33,7 @@ def _svg_shell(width: int, height: int, title: str, body: str) -> str:
 
 
 def render_rto_line(rows: list[dict[str, float]], output: Path) -> None:
+    """Render mean, median, and P99 RTO as line series."""
     width, height = 900, 460
     left, right, top, bottom = 76, 32, 66, 64
     intervals = [row["interval_min"] for row in rows]
@@ -81,6 +85,7 @@ def render_rto_line(rows: list[dict[str, float]], output: Path) -> None:
 
 
 def render_cost_bars(rows: list[dict[str, float]], output: Path) -> None:
+    """Render stacked IO/CPU/communication cost bars by interval."""
     width, height = 900, 460
     left, right, top, bottom = 76, 34, 66, 64
     totals = [row["io_cost"] + row["cpu_cost"] + row["comm_cost"] for row in rows]
@@ -123,6 +128,7 @@ def render_cost_bars(rows: list[dict[str, float]], output: Path) -> None:
 
 
 def render_heatmap(rows: list[dict[str, float]], output: Path) -> None:
+    """Render a compact heatmap for median, mean, and P99 RTO."""
     width, height = 820, 360
     left, top = 110, 72
     cell_w, cell_h = 86, 42
@@ -150,6 +156,7 @@ def render_heatmap(rows: list[dict[str, float]], output: Path) -> None:
 
 
 def generate_charts(summary_path: Path, output_dir: Path) -> list[Path]:
+    """Generate all report SVG charts from an existing benchmark summary."""
     rows = _read_summary(summary_path)
     if not rows:
         raise ValueError(f"no rows found in {summary_path}")
@@ -166,6 +173,7 @@ def generate_charts(summary_path: Path, output_dir: Path) -> list[Path]:
 
 
 def main() -> None:
+    """CLI entry point for regenerating chart artifacts."""
     parser = argparse.ArgumentParser(description="Generate SVG charts from benchmark summary.csv.")
     parser.add_argument("--summary", type=Path, default=Path("results/summary.csv"))
     parser.add_argument("--output-dir", type=Path, default=Path("results/charts"))

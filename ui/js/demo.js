@@ -10,6 +10,9 @@ const crashTargetSelect = document.getElementById("crash-target");
 const btnConfig = document.getElementById("btn-config");
 const btnCrash = document.getElementById("btn-crash");
 const btnRecover = document.getElementById("btn-recover");
+const btnAutoDemo = document.getElementById("btn-auto-demo");
+const btnCheckpointFailure = document.getElementById("btn-checkpoint-failure");
+const btnRecoverInterrupt = document.getElementById("btn-recover-interrupt");
 const scenarioTitle = document.getElementById("scenario-title");
 const scenarioExpected = document.getElementById("scenario-expected");
 const stopwatchEl = document.getElementById("stopwatch");
@@ -41,6 +44,7 @@ function formatTime(ms) {
 }
 
 function startStopwatch() {
+  // The stopwatch measures user-visible RTO from crash event to completion.
   stopwatchStart = performance.now();
   clearInterval(stopwatchTimer);
   stopwatchTimer = setInterval(() => {
@@ -60,6 +64,7 @@ function resetStopwatch() {
 }
 
 function updateNodeCard(node, status, txn = 0, lsn = 0) {
+  // Node cards mirror backend node_status events from the demo router.
   const card = document.getElementById(`node-${node}`);
   if (!card) return;
   card.className = `node-card status-${status}`;
@@ -78,6 +83,7 @@ function appendTimeline(text) {
 }
 
 function appendPhaseTimeline(event) {
+  // Recovery pass events are compacted into one readable timeline line.
   const labels = {
     ANALYSIS: "Analysis",
     PARTIAL_REDO: "Partial Redo",
@@ -217,6 +223,7 @@ async function loadScenarios() {
 }
 
 async function loadSelectedScenario() {
+  // Loading a scenario regenerates WAL/snapshot data on the backend.
   const scenarioId = scenarioSelect.value;
   resetDemoView("loading scenario...");
   const res = await fetch(apiUrl("/api/demo/scenario"), {
@@ -252,6 +259,7 @@ btnConfig.onclick = async () => {
 };
 
 async function crashNode() {
+  // Crash stops the backend WAL stream and freezes the current LSN.
   timeline.textContent = "";
   recoveryState.textContent = "crashed";
   const targetNode = crashTargetSelect.value;
@@ -263,6 +271,7 @@ async function crashNode() {
 }
 
 async function recoverNode() {
+  // Recovery events are replayed through WebSocket after the backend run.
   recoveryState.textContent = "recovering";
   await fetch(apiUrl("/api/demo/recover"), { method: "POST" });
   await loadStatus();
@@ -300,6 +309,22 @@ async function loadScenarioById(scenarioId) {
 btnLoadScenario.onclick = loadSelectedScenario;
 btnCrash.onclick = crashNode;
 btnRecover.onclick = recoverNode;
+if (btnAutoDemo) {
+  btnAutoDemo.onclick = async () => {
+    // Optional legacy control: run a compact load -> crash -> recover flow.
+    await loadSelectedScenario();
+    await sleep(300);
+    await crashNode();
+    await sleep(300);
+    await recoverNode();
+  };
+}
+if (btnCheckpointFailure) {
+  btnCheckpointFailure.onclick = async () => loadScenarioById("checkpoint_failure");
+}
+if (btnRecoverInterrupt) {
+  btnRecoverInterrupt.onclick = recoverInterrupted;
+}
 
 on("node_status", (event) => updateNodeCard(event.node, event.status, event.txn, event.lsn));
 on("log_entry", appendLog);
@@ -342,6 +367,7 @@ on("coordinator_decision", (event) => {
   appendTimeline(event.message);
 });
 on("rto_complete", (event) => {
+  // Final recovery event closes the stopwatch and marks the node consistent.
   stopStopwatch(event.rto_seconds);
   recoveryState.textContent = "consistent";
   appendTimeline(`consistent; RTO=${event.rto_seconds.toFixed(6)}s`);

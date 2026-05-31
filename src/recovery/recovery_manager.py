@@ -43,9 +43,12 @@ class RecoveryManager:
         event_cb: EventCallback | None = None,
         coordinator_resolver: CoordinatorResolver | None = None,
     ) -> RecoveryResult:
+        """Run the full crash recovery workflow and return measured RTO data."""
         t0 = time.perf_counter()
         records = list(iter_log_records(log_path))
 
+        # Recovery is intentionally split into named passes to match the report
+        # terminology and to make UI event playback easy to follow.
         redo_lsn, txn_state, records_scanned = self._analysis_pass(records, event_cb)
         checkpoint_failure_detected = self._detect_checkpoint_failure(records, redo_lsn, event_cb)
         records_redone = self._partial_redo(records, redo_lsn, txn_state, snapshot_path, event_cb)
@@ -90,6 +93,7 @@ class RecoveryManager:
         records: list[LogRecord],
         event_cb: EventCallback | None,
     ) -> tuple[int, dict[int, str], int]:
+        """Find the redo start point and classify transaction outcomes."""
         self._emit(event_cb, {"type": "recovery_pass", "pass": "ANALYSIS", "progress": 0.0})
         redo_lsn = self._last_checkpoint_redo_lsn(records)
         txn_state: dict[int, str] = {}
@@ -101,6 +105,8 @@ class RecoveryManager:
             scanned += 1
             if record.txn_id == 0:
                 continue
+            # The latest terminal record wins. A START is a loser until a later
+            # COMMIT/ABORT/PREPARE changes how recovery should treat it.
             if record.record_type == RecordType.START:
                 txn_state[record.txn_id] = "LOSER"
             elif record.record_type == RecordType.PREPARE:
@@ -130,6 +136,7 @@ class RecoveryManager:
         redo_lsn: int,
         event_cb: EventCallback | None,
     ) -> bool:
+        """Detect a BEGIN_CHECKPOINT that crashed before END_CHECKPOINT."""
         last_begin_lsn: int | None = None
         last_end_lsn: int | None = None
 
@@ -165,6 +172,7 @@ class RecoveryManager:
         snapshot_path: str | Path,
         event_cb: EventCallback | None,
     ) -> int:
+        """Replay committed updates from the redo point forward."""
         redone = 0
         for record in records:
             if record.lsn < redo_lsn:
@@ -214,6 +222,7 @@ class RecoveryManager:
         snapshot_path: str | Path,
         event_cb: EventCallback | None,
     ) -> tuple[int, set[int]]:
+        """Rollback aborted and loser transactions in reverse LSN order."""
         undo_txns = {
             txn_id
             for txn_id, state in txn_state.items()
@@ -261,6 +270,7 @@ class RecoveryManager:
         return undone_records, undo_txns
 
     def _handle_in_doubt(self, txn_ids: set[int], event_cb: EventCallback | None) -> None:
+        """Emit UI-facing events for prepared transactions without a decision."""
         for txn_id in sorted(txn_ids):
             self._emit(
                 event_cb,
@@ -280,6 +290,7 @@ class RecoveryManager:
         coordinator_resolver: CoordinatorResolver | None,
         event_cb: EventCallback | None,
     ) -> tuple[dict[int, str], int, int]:
+        """Ask the coordinator simulator for final 2PC decisions when present."""
         if not txn_ids or coordinator_resolver is None:
             return {}, 0, 0
 
@@ -328,6 +339,8 @@ class RecoveryManager:
                 and record.record_type == RecordType.UPDATE
                 and record.page_id is not None
             ]
+            # Coordinator COMMIT makes the participant redo its prepared work;
+            # coordinator ABORT makes it undo the same records in reverse order.
             if decision == "COMMIT":
                 for record in txn_records:
                     write_page(snapshot_path, record.page_id, record.after_image)
@@ -369,6 +382,7 @@ class RecoveryManager:
         )
 
     def _last_checkpoint_redo_lsn(self, records: list[LogRecord]) -> int:
+        """Return the redo LSN from the latest complete checkpoint."""
         for record in reversed(records):
             if record.record_type == RecordType.END_CHECKPOINT:
                 return record.redo_lsn or record.lsn + 1

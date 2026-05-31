@@ -16,6 +16,7 @@ DEFAULT_LOG_BYTES = 1024 * 1024 * 1024
 
 
 def align_up(value: int, multiple: int) -> int:
+    """Round a byte size up to the next multiple."""
     if multiple <= 0:
         raise ValueError("multiple must be positive")
     remainder = value % multiple
@@ -23,6 +24,7 @@ def align_up(value: int, multiple: int) -> int:
 
 
 def create_large_snapshot(path: str | Path, size_bytes: int = DEFAULT_SNAPSHOT_BYTES) -> None:
+    """Create a sparse-like snapshot file with the requested byte size."""
     snapshot_path = Path(path)
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
     # A truncated file is enough here because the storage layer treats the snapshot as raw pages.
@@ -31,6 +33,7 @@ def create_large_snapshot(path: str | Path, size_bytes: int = DEFAULT_SNAPSHOT_B
 
 
 def build_log_pattern() -> bytes:
+    """Build a repeatable WAL pattern containing commit, abort, and 2PC cases."""
     records: list[bytes] = []
     lsn = 1
 
@@ -74,6 +77,7 @@ def build_log_pattern() -> bytes:
 
 
 def create_large_wal(path: str | Path, size_bytes: int = DEFAULT_LOG_BYTES) -> None:
+    """Write a large WAL by repeating the valid record pattern."""
     log_path = Path(path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     pattern = build_log_pattern()
@@ -94,6 +98,7 @@ def create_large_wal(path: str | Path, size_bytes: int = DEFAULT_LOG_BYTES) -> N
 
 
 def main() -> None:
+    """CLI entry point for generating the full-scale benchmark dataset."""
     parser = argparse.ArgumentParser(description="Generate a full-scale 1GB WAL and 500MB snapshot dataset.")
     parser.add_argument("--log-bytes", type=int, default=DEFAULT_LOG_BYTES)
     parser.add_argument("--snapshot-bytes", type=int, default=DEFAULT_SNAPSHOT_BYTES)

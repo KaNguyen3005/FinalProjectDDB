@@ -31,6 +31,7 @@ class BenchmarkRunConfig(BaseModel):
 
 
 async def _run_benchmark_background(config: BenchmarkRunConfig) -> None:
+    """Run the benchmark matrix outside the request/response path."""
     results_dir = ROOT / "results"
     work_dir = ROOT / "data" / "api_benchmark_runs"
     full_scale_dir = ROOT / "data" / "full_scale"
@@ -44,6 +45,8 @@ async def _run_benchmark_background(config: BenchmarkRunConfig) -> None:
             await asyncio.to_thread(_clear_benchmark_outputs, raw_dir, results_dir / "summary.csv")
         for interval in config.intervals:
             for run in range(1, config.runs + 1):
+                # Keep seeds deterministic while ensuring each cell/run uses a
+                # distinct workload.
                 run_seed = config.seed + interval * 10_000 + run
                 if config.dataset_mode == "full_scale":
                     result = await asyncio.to_thread(
@@ -112,6 +115,7 @@ def benchmark_status() -> dict:
 
 @router.get("/spec")
 def benchmark_spec() -> dict:
+    """Expose the default matrix and full-scale dataset availability to UI."""
     full_scale_dir = ROOT / "data" / "full_scale"
     log_path = full_scale_dir / "transaction_log.bin"
     snapshot_path = full_scale_dir / "db_snapshot.bin"
@@ -128,6 +132,7 @@ def benchmark_spec() -> dict:
 
 @router.get("/results")
 def benchmark_results() -> list[dict]:
+    """Read the aggregated summary CSV as JSON rows."""
     path = ROOT / "results" / "summary.csv"
     if not path.exists():
         return []
@@ -137,6 +142,7 @@ def benchmark_results() -> list[dict]:
 
 @router.get("/raw/{interval}")
 def raw_results(interval: int) -> list[dict]:
+    """Return raw per-run JSON rows for one checkpoint interval."""
     raw_dir = ROOT / "results" / "raw"
     rows = []
     for path in sorted(raw_dir.glob(f"rto_interval_{interval}min_run_*.json")):
@@ -146,6 +152,7 @@ def raw_results(interval: int) -> list[dict]:
 
 
 def _clear_benchmark_outputs(raw_dir: Path, summary_path: Path) -> None:
+    """Remove previous benchmark artifacts before a clean run."""
     raw_dir.mkdir(parents=True, exist_ok=True)
     for path in raw_dir.glob("rto_interval_*min_run_*.json"):
         path.unlink()

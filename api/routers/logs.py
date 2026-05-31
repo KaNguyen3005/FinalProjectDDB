@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/logs", tags=["logs"])
 
 
 def serialize_record(record: LogRecord) -> dict:
+    """Convert a binary WAL record to a JSON-safe API shape."""
     return {
         "lsn": record.lsn,
         "txn_id": record.txn_id,
@@ -30,6 +31,7 @@ def serialize_record(record: LogRecord) -> dict:
 
 @router.get("/records")
 def records(node: str | None = None, offset: int = 0, limit: int = 100) -> dict:
+    """Return a paged slice of the current demo WAL file."""
     path = demo_state.log_path
     all_records = list(iter_log_records(path)) if path.exists() else []
     if node:
@@ -45,6 +47,7 @@ def records(node: str | None = None, offset: int = 0, limit: int = 100) -> dict:
 
 @router.get("/stream")
 async def stream() -> StreamingResponse:
+    """Stream newly observed WAL records using Server-Sent Events."""
     async def event_source():
         path = Path(demo_state.log_path)
         seen = 0

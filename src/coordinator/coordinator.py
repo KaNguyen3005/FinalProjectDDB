@@ -20,4 +20,5 @@ class CoordinatorSimulator:
     decisions: dict[int, CoordinatorDecision] = field(default_factory=dict)
 
     def resolve(self, txn_id: int) -> CoordinatorDecision | None:
+        """Return the final global 2PC decision if the coordinator knows it."""
         return self.decisions.get(txn_id)

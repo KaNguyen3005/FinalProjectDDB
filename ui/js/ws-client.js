@@ -6,6 +6,7 @@ const handlers = new Map();
 let socket = null;
 
 export function on(eventType, fn) {
+  // Multiple screens can register callbacks for the same backend event type.
   if (!handlers.has(eventType)) {
     handlers.set(eventType, new Set());
   }
@@ -13,6 +14,7 @@ export function on(eventType, fn) {
 }
 
 export function connect() {
+  // Reconnect automatically so a backend reload does not require page refresh.
   socket = new WebSocket(WS_URL);
   socket.onmessage = ({ data }) => {
     const event = JSON.parse(data);

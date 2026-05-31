@@ -42,6 +42,7 @@ class CrashRequest(BaseModel):
 
 @router.get("/status")
 def status() -> dict:
+    """Return the current demo control-plane state."""
     return {
         "scenario_id": demo_state.scenario_id,
         "scenario_title": demo_state.scenario_title,
@@ -68,11 +69,13 @@ def status() -> dict:
 
 @router.get("/scenarios")
 def scenarios() -> dict:
+    """List curated recovery scenarios available in the UI."""
     return {"scenarios": list_scenarios()}
 
 
 @router.post("/scenario")
 async def load_scenario(request: DemoScenarioRequest) -> dict:
+    """Generate WAL/snapshot files for one curated scenario."""
     try:
         scenario = generate_demo_scenario(
             request.scenario_id,
@@ -104,6 +107,7 @@ async def load_scenario(request: DemoScenarioRequest) -> dict:
 
 @router.post("/config")
 async def configure(config: DemoConfig) -> dict:
+    """Generate an ad-hoc workload from user-selected demo settings."""
     _reset_demo_state(
         scenario_id="custom",
         title="Custom configuration",
@@ -134,6 +138,7 @@ async def configure(config: DemoConfig) -> dict:
 
 @router.post("/crash")
 async def crash(request: CrashRequest | None = None) -> dict:
+    """Stop the log stream and mark the selected node as crashed."""
     if not demo_state.log_path.exists() or not demo_state.snapshot_path.exists():
         await configure(DemoConfig(checkpoint_interval_min=demo_state.checkpoint_interval_min))
 
@@ -152,16 +157,19 @@ async def crash(request: CrashRequest | None = None) -> dict:
 
 @router.post("/recover")
 async def recover() -> dict:
+    """Recover the crashed node using the full event playback."""
     return await _run_recovery()
 
 
 @router.post("/recover-interrupted")
 async def recover_interrupted(request: RecoveryInterruptRequest | None = None) -> dict:
+    """Run recovery but interrupt it after a few events for demo purposes."""
     interrupt_after_events = (request.interrupt_after_events if request else 4)
     return await _run_recovery(interrupt_after_events=interrupt_after_events)
 
 
 async def _run_recovery(*, interrupt_after_events: int | None = None) -> dict:
+    """Collect recovery events synchronously, then replay them to the UI."""
     if not demo_state.log_path.exists() or not demo_state.snapshot_path.exists():
         await configure(DemoConfig(checkpoint_interval_min=demo_state.checkpoint_interval_min))
 
@@ -180,6 +188,7 @@ async def _run_recovery(*, interrupt_after_events: int | None = None) -> dict:
         pass
 
     def collect(event: dict) -> None:
+        """Capture recovery events and optionally simulate a second crash."""
         nonlocal recovery_event_count
         events.append(event)
         if event.get("type") in {
@@ -262,6 +271,7 @@ async def _run_recovery(*, interrupt_after_events: int | None = None) -> dict:
 
 @router.get("/recent-log")
 def recent_log(limit: int = 25) -> dict:
+    """Return the tail of the current WAL for initial UI hydration."""
     records = list(iter_log_records(demo_state.log_path)) if demo_state.log_path.exists() else []
     tail = records[-limit:]
     return {
@@ -288,6 +298,7 @@ def _reset_demo_state(
     checkpoint_interval_min: int,
     coordinator_decisions: dict[int, str],
 ) -> None:
+    """Reset state fields that should change whenever a new workload is loaded."""
     _cancel_existing_stream()
     demo_state.scenario_id = scenario_id
     demo_state.scenario_title = title
@@ -305,6 +316,7 @@ def _reset_demo_state(
 
 
 async def _restart_log_stream() -> None:
+    """Start a new background task that replays WAL records to WebSocket."""
     _cancel_existing_stream()
     demo_state.log_stream_generation += 1
     generation = demo_state.log_stream_generation
@@ -313,11 +325,13 @@ async def _restart_log_stream() -> None:
 
 
 async def _stop_log_stream() -> None:
+    """Cancel the current WAL replay task and notify connected clients."""
     _cancel_existing_stream()
     await manager.broadcast(demo_log_stream_state(False, generation=demo_state.log_stream_generation))
 
 
 def _cancel_existing_stream() -> None:
+    """Cancel the old replay task; the generation guard handles late exits."""
     task = demo_state.log_stream_task
     if task and not task.done():
         task.cancel()
@@ -325,6 +339,7 @@ def _cancel_existing_stream() -> None:
 
 
 async def _stream_log_records(generation: int) -> None:
+    """Replay WAL records with a short delay so the demo looks live."""
     import asyncio
 
     try:
@@ -355,6 +370,7 @@ async def _stream_log_records(generation: int) -> None:
 
 
 def _refresh_current_position() -> None:
+    """Update current LSN/transaction counters from the generated WAL tail."""
     records = list(iter_log_records(demo_state.log_path))
     if records:
         demo_state.current_txn = max(record.txn_id for record in records)
@@ -365,6 +381,7 @@ def _refresh_current_position() -> None:
 
 
 async def _demo_event_pause() -> None:
+    """Small UI pacing delay between recovery events."""
     import asyncio
 
     await asyncio.sleep(0.08)

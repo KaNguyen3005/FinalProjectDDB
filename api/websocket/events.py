@@ -4,10 +4,12 @@ from typing import Any
 
 
 def node_status(node: str, status: str, *, txn: int = 0, lsn: int = 0) -> dict[str, Any]:
+    """Report the current state of a node card in the demo UI."""
     return {"type": "node_status", "node": node, "status": status, "txn": txn, "lsn": lsn}
 
 
 def crash_event(node: str, timestamp: float, *, run_elapsed_seconds: float = 0.0) -> dict[str, Any]:
+    """Describe a crash point so the UI can start its RTO stopwatch."""
     return {
         "type": "crash",
         "node": node,
@@ -17,6 +19,7 @@ def crash_event(node: str, timestamp: float, *, run_elapsed_seconds: float = 0.0
 
 
 def checkpoint_failure(begin_lsn: int, redo_lsn: int, message: str) -> dict[str, Any]:
+    """Describe an incomplete checkpoint discovered during recovery."""
     return {
         "type": "checkpoint_failure",
         "begin_lsn": begin_lsn,
@@ -26,10 +29,12 @@ def checkpoint_failure(begin_lsn: int, redo_lsn: int, message: str) -> dict[str,
 
 
 def log_entry(**kwargs: Any) -> dict[str, Any]:
+    """Wrap a WAL record payload for the realtime log stream."""
     return {"type": "log_entry", **kwargs}
 
 
 def demo_log_stream_state(running: bool, *, generation: int = 0) -> dict[str, Any]:
+    """Tell clients whether the synthetic WAL stream is active."""
     return {"type": "demo_log_stream_state", "running": running, "generation": generation}
 
 
@@ -41,6 +46,7 @@ def benchmark_progress(
     *,
     completed_runs: int = 0,
 ) -> dict[str, Any]:
+    """Report one completed benchmark run inside the interval x run matrix."""
     return {
         "type": "benchmark_progress",
         "interval": interval,

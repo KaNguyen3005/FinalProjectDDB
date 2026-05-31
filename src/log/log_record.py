@@ -9,6 +9,8 @@ from typing import BinaryIO, Iterable
 
 
 class RecordType(IntEnum):
+    """WAL record categories understood by generation, recovery, and UI."""
+
     START = 0
     UPDATE = 1
     COMMIT = 2
@@ -28,6 +30,12 @@ NO_LSN = 0
 
 @dataclass(frozen=True)
 class LogRecord:
+    """One fixed-size WAL entry.
+
+    The record stores both before and after images so the recovery manager can
+    apply the same log to either REDO committed updates or UNDO loser updates.
+    """
+
     record_type: RecordType
     lsn: int
     txn_id: int = 0
@@ -42,6 +50,7 @@ class LogRecord:
     SIZE = STRUCT.size
 
     def __post_init__(self) -> None:
+        # The binary format stores node_id as exactly one byte.
         if self.lsn < 0:
             raise ValueError("lsn must be non-negative")
         if len(self.node_id) != 1 or ord(self.node_id) > 255:
@@ -73,6 +82,7 @@ class LogRecord:
         )
 
     def pack(self) -> bytes:
+        """Serialize this record to the on-disk WAL representation."""
         page_id = NO_PAGE if self.page_id is None else self.page_id
         return self.STRUCT.pack(
             MAGIC,
@@ -90,6 +100,7 @@ class LogRecord:
 
     @classmethod
     def unpack(cls, data: bytes) -> "LogRecord":
+        """Parse one fixed-size WAL record and validate its magic/version."""
         if len(data) != cls.SIZE:
             raise ValueError(f"expected {cls.SIZE} bytes, got {len(data)}")
 
@@ -126,6 +137,8 @@ class LogRecord:
 
 
 class WalWriter:
+    """Append-only WAL writer that assigns monotonically increasing LSNs."""
+
     def __init__(self, path: str | Path, node_id: str = "A") -> None:
         self.path = Path(path)
         self.node_id = node_id
@@ -146,6 +159,7 @@ class WalWriter:
         after_image: int = NO_IMAGE,
         redo_lsn: int = NO_LSN,
     ) -> LogRecord:
+        """Append one logical record and return the in-memory representation."""
         record = LogRecord.create(
             record_type,
             self._next_lsn,
@@ -162,6 +176,7 @@ class WalWriter:
         return record
 
     def _discover_next_lsn(self) -> int:
+        """Continue from an existing aligned WAL file, or start at LSN 1."""
         if not self.path.exists():
             return 1
         size = self.path.stat().st_size
@@ -171,6 +186,7 @@ class WalWriter:
 
 
 def iter_log_records(path: str | Path) -> Iterable[LogRecord]:
+    """Yield records from a WAL file if it exists."""
     file_path = Path(path)
     if not file_path.exists():
         return
@@ -180,6 +196,7 @@ def iter_log_records(path: str | Path) -> Iterable[LogRecord]:
 
 
 def iter_log_records_from_file(fh: BinaryIO) -> Iterable[LogRecord]:
+    """Stream fixed-size WAL chunks from an already-open binary file."""
     while chunk := fh.read(LogRecord.SIZE):
         if len(chunk) != LogRecord.SIZE:
             raise ValueError("truncated log record")

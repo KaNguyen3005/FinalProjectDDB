@@ -11,6 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @dataclass
 class DemoState:
+    """Mutable runtime state shared by demo endpoints.
+
+    The app is a single-process simulator, so an in-memory object is enough to
+    coordinate scenario selection, node status, generated data paths, and the
+    background log-stream task.
+    """
+
     scenario_id: str = "fast_checkpoint_clean"
     checkpoint_interval_min: int = 5
     scenario_title: str = "Fast checkpoint: clean recovery"
@@ -37,6 +44,8 @@ class DemoState:
 
 @dataclass
 class BenchmarkState:
+    """Mutable runtime state for the background benchmark job."""
+
     running: bool = False
     started_at: float | None = None
     completed_at: float | None = None

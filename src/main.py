@@ -23,6 +23,7 @@ def crash_and_recover(
     data_dir: Path,
     verbose_events: bool,
 ) -> None:
+    """CLI smoke path: generate data, run recovery, and print RTO metrics."""
     data_dir.mkdir(parents=True, exist_ok=True)
     log_path = data_dir / "transaction_log.bin"
     snapshot_path = data_dir / "db_snapshot.bin"
@@ -42,6 +43,7 @@ def crash_and_recover(
     timer.start()
 
     def emit(event: dict) -> None:
+        """Optional event sink for debugging recovery pass output."""
         if verbose_events:
             print(event)
 
@@ -61,6 +63,7 @@ def crash_and_recover(
 
 
 def main() -> None:
+    """Parse CLI options for the core simulator."""
     parser = argparse.ArgumentParser(description="RTO disaster recovery simulator.")
     parser.add_argument("--crash-and-recover", action="store_true")
     parser.add_argument("--interval", type=int, default=5, help="Checkpoint interval in benchmark minutes.")

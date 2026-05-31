@@ -6,6 +6,7 @@ import uvicorn
 
 
 def main() -> None:
+    """Start the FastAPI app and print the main URLs for manual testing."""
     parser = argparse.ArgumentParser(description="Start the RTO Benchmark FastAPI app.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
