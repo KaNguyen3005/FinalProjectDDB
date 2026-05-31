@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Generated data and benchmark outputs
+data/
+results/raw/*
+results/charts/*
+results/summary.csv
+
+# Keep scaffold directories
+!results/raw/.gitkeep
+!results/charts/.gitkeep
+
+# Local/editor files
+.env
+.idea/
+.vscode/
+*.log

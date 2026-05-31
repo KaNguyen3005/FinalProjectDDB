@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RTO Benchmark</title>
+    <link rel="stylesheet" href="/css/base.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <h1>RTO Benchmark Results</h1>
+          <span>checkpoint interval matrix</span>
+        </div>
+        <nav class="nav">
+          <a href="/demo">Demo</a>
+          <a class="active" href="/benchmark">Benchmark</a>
+          <a href="/logs">Logs</a>
+        </nav>
+      </header>
+      <main>
+        <div class="toolbar">
+          <button id="btn-run-benchmark" class="primary">Run Full Benchmark</button>
+          <span class="muted mono" id="benchmark-status">idle</span>
+        </div>
+        <section class="scenario-strip">
+          <div>
+            <label>Benchmark Matrix</label>
+            <strong>1, 2, 5, 10, 20, 30 minutes x 10 runs</strong>
+          </div>
+          <div>
+            <label>Controlled Workload</label>
+            <span>Full-scale mode uses data/full_scale: 1GB WAL and 500MB snapshot.</span>
+          </div>
+        </section>
+        <div class="progress"><span id="benchmark-progress"></span></div>
+
+        <section class="metric-row">
+          <div class="metric"><label>Intervals</label><strong id="metric-intervals">0</strong></div>
+          <div class="metric"><label>Best Mean</label><strong id="metric-best">0s</strong></div>
+          <div class="metric"><label>Worst P99</label><strong id="metric-p99">0s</strong></div>
+          <div class="metric"><label>Total IO Cost</label><strong id="metric-io">0</strong></div>
+        </section>
+
+        <section class="grid benchmark-grid">
+          <div class="panel">
+            <div class="panel-header"><h2>RTO vs Interval</h2><span class="muted mono">mean median p99</span></div>
+            <div class="panel-body">
+              <canvas id="rto-chart" width="900" height="330"></canvas>
+              <div class="chart-legend" aria-label="RTO chart legend">
+                <div class="legend-item"><span class="legend-swatch legend-mean"></span><span>Mean</span></div>
+                <div class="legend-item"><span class="legend-swatch legend-median"></span><span>Median</span></div>
+                <div class="legend-item"><span class="legend-swatch legend-p99"></span><span>P99</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header"><h2>Cost Breakdown</h2><span class="muted mono">IO CPU COMM</span></div>
+            <div class="panel-body">
+              <canvas id="cost-chart" width="620" height="330"></canvas>
+              <div class="chart-legend" aria-label="Cost chart legend">
+                <div class="legend-item"><span class="legend-swatch legend-io"></span><span>IO</span></div>
+                <div class="legend-item"><span class="legend-swatch legend-cpu"></span><span>CPU</span></div>
+                <div class="legend-item"><span class="legend-swatch legend-comm"></span><span>COMM</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" style="margin-top:16px">
+          <div class="panel-header"><h2>Summary Table</h2><span class="muted mono" id="table-count">0 rows</span></div>
+          <div class="panel-body">
+            <table>
+              <thead>
+                <tr>
+                  <th>Interval</th>
+                  <th>Mean</th>
+                  <th>Median</th>
+                  <th>P99</th>
+                  <th>Std</th>
+                  <th>IO</th>
+                  <th>CPU</th>
+                  <th>Comm</th>
+                  <th>Theory</th>
+                </tr>
+              </thead>
+              <tbody id="summary-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/js/benchmark.js"></script>
+  </body>
+</html>

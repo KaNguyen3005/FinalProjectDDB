@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RTO Logs</title>
+    <link rel="stylesheet" href="/css/base.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <h1>WAL Log Inspector</h1>
+          <span>binary log records</span>
+        </div>
+        <nav class="nav">
+          <a href="/demo">Demo</a>
+          <a href="/benchmark">Benchmark</a>
+          <a class="active" href="/logs">Logs</a>
+        </nav>
+      </header>
+      <main>
+        <div class="toolbar">
+          <select id="node-filter" aria-label="Node filter">
+            <option value="">All nodes</option>
+            <option value="A">Node A</option>
+            <option value="B">Node B</option>
+            <option value="C">Node C</option>
+          </select>
+          <button id="btn-prev">Prev</button>
+          <button id="btn-next">Next</button>
+          <button id="btn-refresh" class="primary">Refresh</button>
+          <span class="muted mono" id="page-state">offset 0</span>
+        </div>
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Records</h2>
+            <span class="muted mono" id="record-total">0 total</span>
+          </div>
+          <div class="panel-body">
+            <table>
+              <thead>
+                <tr>
+                  <th>LSN</th>
+                  <th>Node</th>
+                  <th>Txn</th>
+                  <th>Type</th>
+                  <th>Page</th>
+                  <th>Before</th>
+                  <th>After</th>
+                  <th>Redo LSN</th>
+                </tr>
+              </thead>
+              <tbody id="records-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/js/logs.js"></script>
+  </body>
+</html>

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RTO Demo</title>
+    <base href="http://127.0.0.1:8000/">
+    <link rel="stylesheet" href="/css/base.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <h1>RTO Disaster Recovery</h1>
+          <span>live cluster demo</span>
+        </div>
+        <nav class="nav">
+          <a class="active" href="/demo">Demo</a>
+          <a href="/benchmark">Benchmark</a>
+          <a href="/logs">Logs</a>
+        </nav>
+      </header>
+
+      <main>
+        <div class="toolbar">
+          <select id="scenario-select" aria-label="Demo scenario">
+            <option value="fast_checkpoint_clean">Fast checkpoint: clean recovery</option>
+          </select>
+          <button id="btn-load-scenario" class="primary">Load Scenario</button>
+          <select id="checkpoint-interval" aria-label="Checkpoint interval">
+            <option value="1">Checkpoint 1 min</option>
+            <option value="2">Checkpoint 2 min</option>
+            <option value="5" selected>Checkpoint 5 min</option>
+            <option value="10">Checkpoint 10 min</option>
+            <option value="20">Checkpoint 20 min</option>
+            <option value="30">Checkpoint 30 min</option>
+          </select>
+          <button id="btn-config" class="primary">Apply Config</button>
+          <select id="crash-target" aria-label="Crash target">
+            <option value="A">Crash Node A</option>
+            <option value="B">Crash Node B</option>
+            <option value="C">Crash Node C</option>
+          </select>
+          <button id="btn-crash" class="danger">Crash Selected Node</button>
+          <button id="btn-recover" class="primary">Recover</button>
+        </div>
+
+        <section class="scenario-strip">
+          <div>
+            <label>Selected Scenario</label>
+            <strong id="scenario-title">Fast checkpoint: clean recovery</strong>
+          </div>
+          <div>
+            <label>Expected Behavior</label>
+            <span id="scenario-expected">Load a scenario to prepare the demo.</span>
+          </div>
+        </section>
+
+        <section id="checkpoint-banner" class="banner hidden"></section>
+
+        <section class="metric-row">
+          <div class="metric">
+            <label>RTO Stopwatch</label>
+            <strong id="stopwatch">00:00:00.000</strong>
+          </div>
+          <div class="metric">
+            <label>Checkpoint</label>
+            <strong id="metric-interval">5m</strong>
+          </div>
+          <div class="metric">
+            <label>Current LSN</label>
+            <strong id="metric-lsn">0</strong>
+          </div>
+          <div class="metric">
+            <label>In-Doubt</label>
+            <strong id="metric-indoubt">0</strong>
+          </div>
+        </section>
+
+        <section class="grid demo-grid">
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Cluster Map</h2>
+              <span class="muted mono" id="cluster-state">RUNNING</span>
+            </div>
+            <div class="panel-body">
+              <article id="node-A" class="node-card status-RUNNING">
+                <div class="node-title"><span>Node A</span><i class="status-dot"></i></div>
+                <div class="muted">PRIMARY</div>
+                <div class="mono">status: <span data-field="status">RUNNING</span></div>
+                <div class="mono">txn: <span data-field="txn">0</span></div>
+                <div class="mono">lsn: <span data-field="lsn">0</span></div>
+              </article>
+              <article id="node-B" class="node-card status-RUNNING">
+                <div class="node-title"><span>Node B</span><i class="status-dot"></i></div>
+                <div class="muted">PRIMARY</div>
+                <div class="mono">status: <span data-field="status">RUNNING</span></div>
+                <div class="mono">txn: <span data-field="txn">0</span></div>
+                <div class="mono">lsn: <span data-field="lsn">0</span></div>
+              </article>
+              <article id="node-C" class="node-card status-RUNNING">
+                <div class="node-title"><span>Node C</span><i class="status-dot"></i></div>
+                <div class="muted">PRIMARY</div>
+                <div class="mono">status: <span data-field="status">RUNNING</span></div>
+                <div class="mono">txn: <span data-field="txn">0</span></div>
+                <div class="mono">lsn: <span data-field="lsn">0</span></div>
+              </article>
+              <article id="node-COORDINATOR" class="node-card status-RUNNING">
+                <div class="node-title"><span>Coordinator</span><i class="status-dot"></i></div>
+                <div class="muted">2PC DECISION POINT</div>
+                <div class="mono">status: <span data-field="status">RUNNING</span></div>
+                <div class="mono">txn: <span data-field="txn">0</span></div>
+                <div class="mono">lsn: <span data-field="lsn">0</span></div>
+              </article>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Live Log Stream</h2>
+              <span class="muted mono" id="log-count">0 records</span>
+            </div>
+            <pre id="log-stream" class="log-view"></pre>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Recovery Timeline</h2>
+              <span class="muted mono" id="recovery-state">idle</span>
+            </div>
+            <div id="timeline" class="timeline"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/js/demo.js"></script>
+  </body>
+</html>

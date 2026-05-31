@@ -1,0 +1,24 @@
+{
+  "completed_at": 1780001960.9964414,
+  "dataset_mode": "full_scale",
+  "in_doubt_txns": 16,
+  "interval_min": 1,
+  "metadata": {
+    "aborted_txns": 22,
+    "committed_txns": 218,
+    "max_interval_min": 30
+  },
+  "records_redone": 177265,
+  "records_scanned": 639132,
+  "records_undone": 17890,
+  "redo_lsn": 1,
+  "rto_seconds": 3.658287525177002,
+  "run": 1,
+  "scanned_log_bytes": 35791392,
+  "seed": 10043,
+  "snapshot_sha256_after": "size:524288000",
+  "snapshot_sha256_before": "size:524288000",
+  "source_log_bytes": 1073741872,
+  "source_snapshot_bytes": 524288000,
+  "started_at": 1780001957.3381538
+}
