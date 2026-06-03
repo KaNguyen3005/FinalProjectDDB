@@ -1,27 +1,27 @@
-# Huong dan doc source code
+# Hướng Dẫn Đọc Source Code
 
-Tai lieu nay huong dan doc source theo luong logic, khong doc theo thu tu alphabet. Nen doc theo cac vong: vong tong quan, vong recovery, vong API/UI, vong benchmark.
+Tài liệu này hướng dẫn đọc source theo luồng logic, không đọc theo thứ tự alphabet. Nên đọc theo các vòng: vòng tổng quan, vòng WAL và recovery, vòng API/UI, vòng benchmark.
 
-## 1. Vong 15 phut dau
+## 1. Vòng 15 Phút Đầu
 
-Bat dau voi cac file nay:
+Bắt đầu với các file này:
 
 1. `README.md`
 2. `run.py`
 3. `api/app.py`
 4. `src/main.py`
 
-Sau vong nay, ban can nam duoc:
+Sau vòng này, bạn cần nắm được:
 
-- App chay bang `python run.py`.
-- FastAPI app nam o `api.app:app`.
-- CLI recovery nam o `src/main.py`.
-- Project co 3 man hinh UI: demo, benchmark, logs.
-- Core recovery khong nam trong API ma nam trong `src/recovery/recovery_manager.py`.
+- App chạy bằng `python run.py`.
+- FastAPI app nằm ở `api.app:app`.
+- CLI recovery nằm ở `src/main.py`.
+- Project có 3 màn hình UI: demo, benchmark, logs.
+- Core recovery không nằm trong API mà nằm trong `src/recovery/recovery_manager.py`.
 
-## 2. Duong doc quan trong nhat: WAL va recovery
+## 2. Đường Đọc Quan Trọng Nhất: WAL Và Recovery
 
-Doc theo thu tu:
+Đọc theo thứ tự:
 
 1. `src/log/log_record.py`
 2. `src/storage.py`
@@ -31,59 +31,59 @@ Doc theo thu tu:
 
 ### 2.1. `src/log/log_record.py`
 
-Day la file nen doc dau tien neu muon hieu recovery.
+Đây là file nên đọc đầu tiên nếu muốn hiểu recovery.
 
-Can chu y:
+Cần chú ý:
 
-- `RecordType`: cac loai record trong WAL.
-- `LogRecord.STRUCT`: binary format cua moi record.
-- `lsn`: so thu tu log, tang dan.
-- `before_image`: gia tri de UNDO.
-- `after_image`: gia tri de REDO.
-- `redo_lsn`: diem recovery bat dau sau checkpoint.
-- `WalWriter.append()`: moi lan append tao mot LSN moi.
-- `iter_log_records()`: doc WAL thanh cac `LogRecord`.
+- `RecordType`: các loại record trong WAL.
+- `LogRecord.STRUCT`: binary format của mỗi record.
+- `lsn`: số thứ tự log, tăng dần.
+- `before_image`: giá trị dùng cho `undo`.
+- `after_image`: giá trị dùng cho `redo`.
+- `redo_lsn`: điểm recovery bắt đầu sau checkpoint.
+- `WalWriter.append()`: mỗi lần append tạo một `LSN` mới.
+- `iter_log_records()`: đọc WAL thành các `LogRecord`.
 
-Neu chua hieu `before_image` va `after_image`, dung lai o day. Hai field nay la chia khoa cua REDO/UNDO.
+Nếu chưa hiểu `before_image` và `after_image`, nên dừng lại ở đây. Hai field này là chìa khóa của `redo` và `undo`.
 
 ### 2.2. `src/storage.py`
 
-File nay rat nho nhung quan trong. No cho thay snapshot duoc mo phong nhu mot mang page trong file nhi phan.
+File này nhỏ nhưng quan trọng. Nó cho thấy snapshot được mô phỏng như một mảng page trong file nhị phân.
 
-Can chu y:
+Cần chú ý:
 
-- Moi page la mot so nguyen 64-bit.
-- `read_page()` doc page theo offset.
-- `write_page()` ghi gia tri moi vao page.
-- Recovery that su thay doi snapshot bang `write_page()`.
+- Mỗi page là một số nguyên 64-bit.
+- `read_page()` đọc page theo offset.
+- `write_page()` ghi giá trị mới vào page.
+- Recovery thực sự thay đổi snapshot bằng `write_page()`.
 
 ### 2.3. `src/checkpoint/checkpoint_manager.py`
 
-Checkpoint trong simulator la cap record:
+Checkpoint trong simulator là cặp record:
 
-- BEGIN_CHECKPOINT
-- END_CHECKPOINT
+- `BEGIN_CHECKPOINT`
+- `END_CHECKPOINT`
 
-`END_CHECKPOINT.redo_lsn` cho recovery biet nen bat dau scan lai tu dau.
+`END_CHECKPOINT.redo_lsn` cho recovery biết nên bắt đầu scan lại từ đâu.
 
-Doc them tham so `fail_after_begin`: no tao tinh huong crash sau BEGIN_CHECKPOINT nhung truoc END_CHECKPOINT.
+Đọc thêm tham số `fail_after_begin`: tham số này tạo tình huống crash sau `BEGIN_CHECKPOINT` nhưng trước `END_CHECKPOINT`.
 
 ### 2.4. `data_gen/generate_logs.py`
 
-File nay tra loi cau hoi: WAL va snapshot duoc tao ra nhu the nao?
+File này trả lời câu hỏi: WAL và snapshot được tạo ra như thế nào?
 
-Can chu y:
+Cần chú ý:
 
-- Generator tao snapshot moi.
-- Moi transaction ghi START, UPDATE, roi COMMIT/ABORT/PREPARE/READY.
-- Mot so update duoc ghi ngay vao snapshot de recovery co viec phai undo.
-- Checkpoint duoc ghi dinh ky theo `checkpoint_every`.
+- Generator tạo snapshot mới.
+- Mỗi transaction ghi `START`, `UPDATE`, rồi `COMMIT`/`ABORT`/`PREPARE`/`READY`.
+- Một số update được ghi ngay vào snapshot để recovery có việc phải `undo`.
+- Checkpoint được ghi định kỳ theo `checkpoint_every`.
 
 ### 2.5. `src/recovery/recovery_manager.py`
 
-Day la file trung tam cua project.
+Đây là file trung tâm của project.
 
-Doc `recover()` truoc, sau do moi doc cac ham private theo dung thu tu no goi:
+Đọc `recover()` trước, sau đó mới đọc các hàm private theo đúng thứ tự nó gọi:
 
 1. `_analysis_pass()`
 2. `_detect_checkpoint_failure()`
@@ -92,25 +92,25 @@ Doc `recover()` truoc, sau do moi doc cac ham private theo dung thu tu no goi:
 5. `_handle_in_doubt()`
 6. `_resolve_in_doubt()`
 
-Khi doc, hay tu ve bang transaction state:
+Khi đọc, hãy tự vẽ bảng transaction state:
 
 ```text
 START        -> LOSER
 PREPARE      -> IN_DOUBT
-READY        -> IN_DOUBT neu chua co state
+READY        -> IN_DOUBT nếu chưa có state
 COMMIT       -> COMMITTED
 ABORT        -> ABORTED
 ```
 
-Quy tac phuc hoi:
+Quy tắc phục hồi:
 
-- COMMITTED: redo UPDATE bang `after_image`.
-- LOSER/ABORTED: undo UPDATE bang `before_image`.
-- IN_DOUBT: khong tu quyet, hoi coordinator neu co.
+- `COMMITTED`: redo `UPDATE` bằng `after_image`.
+- `LOSER`/`ABORTED`: undo `UPDATE` bằng `before_image`.
+- `IN_DOUBT`: không tự quyết, hỏi coordinator nếu có.
 
-## 3. Duong doc demo realtime
+## 3. Đường Đọc Demo Realtime
 
-Doc theo thu tu:
+Đọc theo thứ tự:
 
 1. `data_gen/demo_scenarios.py`
 2. `api/state.py`
@@ -123,21 +123,21 @@ Doc theo thu tu:
 
 ### 3.1. `data_gen/demo_scenarios.py`
 
-File nay tao cac WAL co chu dich:
+File này tạo các WAL có chủ đích:
 
-- checkpoint nhanh, recovery sach
-- checkpoint dai, redo nhieu
-- loser transaction can Global Undo
-- 2PC in-doubt transaction
+- checkpoint nhanh, recovery sạch
+- checkpoint dài, redo nhiều
+- loser transaction cần `Global Undo`
+- `2PC in-doubt transaction`
 - checkpoint failure
 
-Nen doc `SCENARIOS` truoc, sau do doc `generate_demo_scenario()`, cuoi cung doc `_write_plan()`.
+Nên đọc `SCENARIOS` trước, sau đó đọc `generate_demo_scenario()`, cuối cùng đọc `_write_plan()`.
 
 ### 3.2. `api/routers/demo.py`
 
-File nay la bo dieu khien demo.
+File này là bộ điều khiển demo.
 
-Endpoint can nam:
+Endpoint cần nắm:
 
 - `GET /api/demo/status`
 - `GET /api/demo/scenarios`
@@ -148,26 +148,26 @@ Endpoint can nam:
 - `POST /api/demo/recover-interrupted`
 - `GET /api/demo/recent-log`
 
-Luong chay:
+Luồng chạy:
 
 1. Load scenario.
 2. Restart log stream.
 3. Broadcast WAL entries.
 4. Crash node.
 5. Run recovery.
-6. Broadcast recovery events theo tung buoc.
+6. Broadcast recovery events theo từng bước.
 
-### 3.3. WebSocket files
+### 3.3. WebSocket Files
 
-`api/websocket/events.py` tao payload dict chuan cho UI.
+`api/websocket/events.py` tạo payload dict chuẩn cho UI.
 
-`api/websocket/manager.py` giu danh sach WebSocket connection va broadcast event cho tat ca client.
+`api/websocket/manager.py` giữ danh sách WebSocket connection và broadcast event cho tất cả client.
 
-`ui/js/ws-client.js` la client dung chung de browser nhan event.
+`ui/js/ws-client.js` là client dùng chung để browser nhận event.
 
-## 4. Duong doc benchmark
+## 4. Đường Đọc Benchmark
 
-Doc theo thu tu:
+Đọc theo thứ tự:
 
 1. `benchmark/benchmark_runner.py`
 2. `benchmark/stats_analyzer.py`
@@ -179,27 +179,27 @@ Doc theo thu tu:
 
 ### 4.1. `benchmark/benchmark_runner.py`
 
-Doc cac ham:
+Đọc các hàm:
 
-- `run_single_benchmark()`: sinh data moi va recovery that.
-- `run_single_full_scale_benchmark()`: scan dataset lon.
-- `_scan_full_scale_window()`: dem committed/aborted/in-doubt trong cua so log.
+- `run_single_benchmark()`: sinh data mới và recovery thật.
+- `run_single_full_scale_benchmark()`: scan dataset lớn.
+- `_scan_full_scale_window()`: đếm committed/aborted/in-doubt trong cửa sổ log.
 - `write_raw_result()`: ghi raw JSON.
-- `run_benchmark_matrix()`: chay toan bo intervals x runs.
+- `run_benchmark_matrix()`: chạy toàn bộ `intervals x runs`.
 
-Can hieu cong thuc seed:
+Cần hiểu công thức seed:
 
 ```text
 run_seed = seed + interval * 10000 + run
 ```
 
-Cong thuc nay giup moi interval/run co data rieng nhung van tai lap duoc.
+Công thức này giúp mỗi interval/run có data riêng nhưng vẫn tái lập được.
 
 ### 4.2. `benchmark/stats_analyzer.py`
 
-File nay gom raw JSON theo `interval_min`, tinh thong ke va ghi `summary.csv`.
+File này gom raw JSON theo `interval_min`, tính thống kê và ghi `summary.csv`.
 
-Neu chi can hieu output benchmark, doc:
+Nếu chỉ cần hiểu output benchmark, đọc:
 
 - `SUMMARY_FIELDS`
 - `summarize_results()`
@@ -207,105 +207,32 @@ Neu chi can hieu output benchmark, doc:
 
 ### 4.3. `api/routers/benchmark.py`
 
-File nay boc benchmark CLI thanh API async. Vi benchmark co the ton thoi gian, API chay no trong background task va broadcast tien do qua WebSocket.
+File này bọc benchmark CLI thành API async. Vì benchmark có thể tốn thời gian, API chạy nó trong background task và broadcast tiến độ qua WebSocket.
 
-## 5. Duong doc log inspector
+## 5. Đường Đọc Log Inspector
 
-Doc theo thu tu:
+Đọc theo thứ tự:
 
 1. `api/routers/logs.py`
 2. `src/log/log_record.py`
 3. `ui/js/logs.js`
 4. `ui/logs.html`
 
-`GET /api/logs/records` tra ve WAL records co phan trang.
+Điểm cần nắm:
 
-`GET /api/logs/stream` la Server-Sent Events stream doc record moi.
+- API đọc WAL bằng iterator trong `src/log/log_record.py`.
+- UI phân trang và hiển thị record theo loại.
+- Log inspector hữu ích khi cần đối chiếu event demo với record thật trong WAL.
 
-## 6. Lenh nen chay khi doc
+## 6. Cách Tự Kiểm Tra Hiểu Đúng
 
-Chay app:
+Sau khi đọc source, thử trả lời các câu hỏi sau:
 
-```bash
-python run.py
-```
+- `END_CHECKPOINT.redo_lsn` ảnh hưởng gì đến lượng WAL cần scan?
+- Vì sao committed transaction cần `redo`?
+- Vì sao loser transaction cần `undo`?
+- Vì sao `PREPARE`/`READY` nhưng chưa có `COMMIT`/`ABORT` lại thành `IN_DOUBT`?
+- UI nhận recovery progress qua REST API hay WebSocket?
+- Benchmark khác demo realtime ở điểm nào?
 
-Chay CLI recovery:
-
-```bash
-python src/main.py --crash-and-recover --interval 5 --verbose-events
-```
-
-Chay benchmark nho:
-
-```bash
-python benchmark/benchmark_runner.py --intervals 1 5 --runs 2 --transactions 50 --pages 30
-```
-
-Chay test:
-
-```bash
-pytest tests/ -v
-```
-
-## 7. Cac cau hoi nen tu tra loi khi doc
-
-Khi doc xong `src/log/log_record.py`:
-
-- Mot WAL record co nhung field nao?
-- LSN tang nhu the nao?
-- Khi nao record co `page_id`?
-
-Khi doc xong `src/recovery/recovery_manager.py`:
-
-- Tai sao recovery bat dau tu `redo_lsn`?
-- Transaction nao duoc REDO?
-- Transaction nao bi UNDO?
-- Transaction IN_DOUBT khac LOSER o dau?
-
-Khi doc xong `api/routers/demo.py`:
-
-- Khi bam Crash, stream log dung o dau?
-- Khi Recover, recovery event duoc broadcast nhu the nao?
-- Tai sao co `recover-interrupted`?
-
-Khi doc xong `benchmark/benchmark_runner.py`:
-
-- `generated` mode va `full_scale` mode khac nhau the nao?
-- Raw JSON duoc ghi o dau?
-- Summary CSV duoc tao tu dau?
-
-## 8. File can doc sau cung
-
-Doc sau khi da hieu luong chinh:
-
-- `tests/`: de xem expectation cua he thong.
-- `docs/design_document.md`: de doi chieu thiet ke ban dau.
-- `docs/analysis_report.md`: de xem ket qua va cach dien giai benchmark.
-- `roadmap.md`: de xem yeu cau goc cua project.
-
-## 9. Ban do logic ngan gon
-
-```text
-run.py
-  -> api/app.py
-      -> api/routers/demo.py
-          -> data_gen/demo_scenarios.py
-          -> src/recovery/recovery_manager.py
-          -> api/websocket/manager.py
-
-src/main.py
-  -> data_gen/generate_logs.py
-  -> src/recovery/recovery_manager.py
-
-benchmark/benchmark_runner.py
-  -> data_gen/generate_logs.py
-  -> src/recovery/recovery_manager.py
-  -> benchmark/stats_analyzer.py
-```
-
-Neu chi co thoi gian doc 3 file, hay doc:
-
-1. `src/log/log_record.py`
-2. `src/recovery/recovery_manager.py`
-3. `benchmark/benchmark_runner.py`
+Nếu trả lời được các câu trên, bạn đã nắm được logic chính của source code.

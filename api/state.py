@@ -34,10 +34,14 @@ class DemoState:
     )
     current_txn: int = 0
     current_lsn: int = 0
+    stream_txn: int = 0
+    stream_lsn: int = 0
     run_started_at: float = field(default_factory=time.time)
+    run_id: str = "default"
     crashed_at: float | None = None
     log_stream_task: asyncio.Task | None = None
     log_stream_generation: int = 0
+    live_events: list[dict] = field(default_factory=list)
     log_path: Path = ROOT / "data" / "api_demo" / "transaction_log.bin"
     snapshot_path: Path = ROOT / "data" / "api_demo" / "db_snapshot.bin"
 

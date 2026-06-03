@@ -25,6 +25,10 @@
         <div class="toolbar">
           <select id="scenario-select" aria-label="Demo scenario">
             <option value="fast_checkpoint_clean">Fast checkpoint: clean recovery</option>
+            <option value="long_checkpoint_heavy_redo">Long checkpoint: heavy redo</option>
+            <option value="global_undo_loser">Loser transactions: Global Undo</option>
+            <option value="in_doubt_2pc">2PC in-doubt transaction</option>
+            <option value="checkpoint_failure">Checkpoint failure: BEGIN without END</option>
           </select>
           <button id="btn-load-scenario" class="primary">Load Scenario</button>
           <select id="checkpoint-interval" aria-label="Checkpoint interval">

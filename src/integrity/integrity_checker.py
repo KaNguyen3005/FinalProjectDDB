@@ -16,3 +16,4 @@ def sha256_file(path: str | Path) -> str:
 def verify_sha256(path: str | Path, expected: str) -> bool:
     """Return whether a file's SHA-256 matches an expected digest."""
     return sha256_file(path) == expected
+

@@ -1,120 +1,105 @@
 # RTO Disaster Recovery Benchmark
 
-Project #99: a Recovery Time Objective (RTO) benchmark and visual simulator for crash recovery in a simulated distributed database system.
+Dự án #99: benchmark Recovery Time Objective (RTO) và trình mô phỏng trực quan cho crash recovery trong một hệ thống distributed database giả lập.
 
-The project measures how checkpoint interval affects recovery time after a node crash. It includes a Python recovery engine, FastAPI backend, realtime WebSocket events, browser UI, benchmark runner, data generators, and report artifacts.
+Dự án đo cách checkpoint interval ảnh hưởng đến recovery time sau khi một node bị crash. Source code bao gồm Python recovery engine, FastAPI backend, realtime WebSocket events, browser UI, benchmark runner, data generators và các tài liệu báo cáo.
 
-> This is an academic simulator for studying WAL, checkpointing, redo/undo recovery, and distributed transaction recovery behavior. It is not a production database.
+> Đây là simulator phục vụ học thuật để nghiên cứu WAL, checkpointing, redo/undo recovery và distributed transaction recovery. Đây không phải production database.
 
-## Key Features
+## Tính Năng Chính
 
-- Binary write-ahead log (WAL) records with `START`, `UPDATE`, `COMMIT`, `ABORT`, `BEGIN_CHECKPOINT`, `END_CHECKPOINT`, `PREPARE`, and `READY`.
-- Snapshot storage model where each page is represented as a 64-bit integer.
-- Recovery manager with Analysis, Partial Redo, Global Undo, checkpoint failure handling, and in-doubt transaction resolution.
-- Two-phase commit simulation through coordinator decisions for prepared/in-doubt transactions.
-- FastAPI backend with REST endpoints and WebSocket event streaming.
-- Browser UI for recovery demo, benchmark execution, and WAL inspection.
-- Benchmark pipeline for checkpoint interval x run matrices.
-- Raw benchmark output, aggregated summary CSV, and reproducible chart generation.
-- Pytest suite covering WAL, recovery, API, benchmark, and data generation behavior.
+- Binary write-ahead log (WAL) với các record `START`, `UPDATE`, `COMMIT`, `ABORT`, `BEGIN_CHECKPOINT`, `END_CHECKPOINT`, `PREPARE` và `READY`.
+- Snapshot storage model trong đó mỗi page được biểu diễn bằng một số nguyên 64-bit.
+- Recovery manager có Analysis, Partial Redo, Global Undo, checkpoint failure handling và in-doubt transaction resolution.
+- Two-phase commit simulation thông qua coordinator decisions cho prepared/in-doubt transactions.
+- FastAPI backend với REST endpoints và WebSocket event streaming.
+- Browser UI cho recovery demo, benchmark execution và WAL inspection.
+- Benchmark pipeline cho ma trận checkpoint interval x run.
+- Raw benchmark output, aggregated summary CSV và chart generation có thể tái lập.
+- Pytest suite bao phủ WAL, recovery, API, benchmark và data generation behavior.
 
-## System Architecture
+## Kiến Trúc Hệ Thống
 
-```text
-Browser UI
-   |
-   | REST + WebSocket
-   v
-FastAPI Backend
-   |
-   +--> Demo Controller
-   |       |
-   |       v
-   |   Recovery Engine --> WAL + Snapshot
-   |
-   +--> Benchmark Runner --> Raw Results + Summary CSV + Charts
-   |
-   +--> Log Inspector --> WAL Reader
-```
+![alt text](image.png)
 
-Main directories:
+Các thư mục chính:
 
-| Path | Purpose |
-| --- | --- |
-| `src/` | Core WAL, snapshot, checkpoint, recovery, crash, coordinator, and integrity logic. |
-| `api/` | FastAPI app, REST routers, shared runtime state, and WebSocket event manager. |
-| `ui/` | Static HTML/CSS/vanilla JavaScript UI for demo, benchmark, and log inspection. |
-| `benchmark/` | Benchmark runner, statistics analyzer, cost model, and chart generator. |
-| `data_gen/` | Random dataset generator, full-scale dataset generator, and curated demo scenarios. |
-| `docs/` | Architecture report, source reading guide, analysis report, demo script, and presentation notes. |
-| `tests/` | Pytest suite for core logic, API behavior, benchmark flow, and data generation. |
-| `results/` | Generated raw benchmark outputs, summaries, and chart artifacts. |
+| Path         | Vai trò                                                                                           |
+| ------------ | ------------------------------------------------------------------------------------------------- |
+| `src/`       | Core logic cho WAL, snapshot, checkpoint, recovery, crash, coordinator và integrity.              |
+| `api/`       | FastAPI app, REST routers, shared runtime state và WebSocket event manager.                       |
+| `ui/`        | Static HTML/CSS/vanilla JavaScript UI cho demo, benchmark và log inspection.                      |
+| `benchmark/` | Benchmark runner, statistics analyzer, cost model và chart generator.                             |
+| `data_gen/`  | Random dataset generator, full-scale dataset generator và các curated demo scenarios.             |
+| `docs/`      | Architecture report, source reading guide, analysis report, demo script và presentation notes.    |
+| `tests/`     | Pytest suite cho core logic, API behavior, benchmark flow và data generation.                     |
+| `results/`   | Raw benchmark outputs, summaries và chart artifacts được sinh ra trong quá trình chạy benchmark.  |
 
 ## Recovery Flow
 
-The central recovery logic lives in `src/recovery/recovery_manager.py`.
+Logic recovery trung tâm nằm trong `src/recovery/recovery_manager.py`.
 
-At a high level, recovery runs these phases:
+Ở mức tổng quan, recovery chạy qua các phase sau:
 
 1. **Analysis**
-   - Reads WAL records.
-   - Finds the latest valid checkpoint.
-   - Classifies transactions as committed, aborted, loser, or in-doubt.
+   - Đọc WAL records.
+   - Tìm checkpoint hợp lệ mới nhất.
+   - Phân loại transactions thành committed, aborted, loser hoặc in-doubt.
 
 2. **Checkpoint Failure Detection**
-   - Detects `BEGIN_CHECKPOINT` records that were not followed by a valid `END_CHECKPOINT`.
-   - Ignores incomplete checkpoints and falls back to the last valid checkpoint.
+   - Phát hiện các `BEGIN_CHECKPOINT` không có `END_CHECKPOINT` hợp lệ theo sau.
+   - Bỏ qua incomplete checkpoints và fallback về checkpoint hợp lệ gần nhất.
 
 3. **Partial Redo**
-   - Replays committed updates from the recovery start LSN.
-   - Writes `after_image` values into the snapshot.
+   - Replay committed updates từ recovery start LSN.
+   - Ghi giá trị `after_image` vào snapshot.
 
 4. **Global Undo**
-   - Walks the WAL backward.
-   - Undoes loser or aborted transactions by restoring `before_image` values.
+   - Duyệt WAL theo chiều ngược lại.
+   - Undo loser hoặc aborted transactions bằng cách khôi phục giá trị `before_image`.
 
 5. **In-Doubt Transaction Handling**
-   - Resolves prepared/ready transactions through the coordinator simulator.
-   - Commits are redone; aborts are undone.
+   - Resolve prepared/ready transactions thông qua coordinator simulator.
+   - Transactions được coordinator quyết định `COMMIT` sẽ được redo; `ABORT` sẽ được undo.
 
 6. **RTO Measurement**
-   - Measures recovery duration.
-   - Emits realtime events for the UI.
+   - Đo recovery duration.
+   - Emit realtime events cho UI.
 
-## Installation
+## Cài Đặt
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Run The Web App
+## Chạy Web App
 
 ```bash
 python run.py
 ```
 
-Default local URLs:
+Các URL local mặc định:
 
 - Demo dashboard: <http://127.0.0.1:8000/demo>
 - Benchmark dashboard: <http://127.0.0.1:8000/benchmark>
 - WAL log inspector: <http://127.0.0.1:8000/logs>
 - Health check: <http://127.0.0.1:8000/api/health>
 
-Health check from the terminal:
+Health check từ terminal:
 
 ```bash
 curl http://127.0.0.1:8000/api/health
 ```
 
-## Run A CLI Recovery Smoke Test
+## Chạy CLI Recovery Smoke Test
 
 ```bash
 python src/main.py --crash-and-recover --interval 5
 ```
 
-This generates a sample WAL/snapshot workload, simulates a crash, runs recovery, and reports RTO information.
+Lệnh này sinh workload WAL/snapshot mẫu, giả lập crash, chạy recovery và báo cáo thông tin RTO.
 
-## Run Benchmarks
+## Chạy Benchmarks
 
 ```bash
 python benchmark/benchmark_runner.py --intervals 1 2 5 10 20 30 --runs 10 --seed 42
@@ -124,49 +109,49 @@ Benchmark output:
 
 - Raw per-run JSON files: `results/raw/`
 - Aggregated summary: `results/summary.csv`
-- Summary fields include mean, median, p99, standard deviation, I/O cost, CPU cost, communication cost, and theoretical RTO.
+- Các summary fields gồm mean, median, p99, standard deviation, I/O cost, CPU cost, communication cost và theoretical RTO.
 
-Generate charts:
+Sinh charts:
 
 ```bash
 python benchmark/chart_generator.py
 ```
 
-Generate a full-scale dataset:
+Sinh full-scale dataset:
 
 ```bash
 python data_gen/generate_full_scale_dataset.py --output-dir data/full_scale
 ```
 
-## Run Tests
+## Chạy Tests
 
 ```bash
 pytest tests/ -v
 ```
 
-## API Overview
+## Tổng Quan API
 
-Main endpoints:
+Các endpoint chính:
 
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /api/health` | Health check. |
-| `/api/demo/*` | Load scenarios, configure demo data, crash node, recover node, and inspect recent logs. |
-| `/api/benchmark/*` | Start benchmark jobs, check status, and read benchmark results. |
-| `/api/logs/*` | Inspect WAL records. |
-| `GET /ws/events` | Realtime event stream for UI updates. |
+| Endpoint           | Vai trò                                                                                       |
+| ------------------ | --------------------------------------------------------------------------------------------- |
+| `GET /api/health`  | Health check.                                                                                 |
+| `/api/demo/*`      | Load scenarios, configure demo data, crash node, recover node và inspect recent logs.          |
+| `/api/benchmark/*` | Start benchmark jobs, check status và đọc benchmark results.                                  |
+| `/api/logs/*`      | Inspect WAL records.                                                                          |
+| `GET /ws/events`   | Realtime event stream cho UI updates.                                                         |
 
-## UI Screens
+## Màn Hình UI
 
-- `/demo`: interactive crash and recovery demo.
-- `/benchmark`: benchmark execution and result visualization.
+- `/demo`: interactive crash và recovery demo.
+- `/benchmark`: benchmark execution và result visualization.
 - `/logs`: WAL record inspector.
 
-The UI is implemented with static HTML/CSS and vanilla JavaScript under `ui/`.
+UI được triển khai bằng static HTML/CSS và vanilla JavaScript trong `ui/`.
 
-## Suggested Source Reading Order
+## Thứ Tự Đọc Source Code Đề Xuất
 
-For the fastest path to understanding the codebase, read these files first:
+Để hiểu codebase nhanh nhất, nên đọc các file sau trước:
 
 1. `README.md`
 2. `run.py`
@@ -179,20 +164,20 @@ For the fastest path to understanding the codebase, read these files first:
 9. `api/routers/demo.py`
 10. `benchmark/benchmark_runner.py`
 
-Detailed guide: [`docs/source_reading_guide.md`](docs/source_reading_guide.md)
+Hướng dẫn chi tiết: [`docs/source_reading_guide.md`](docs/source_reading_guide.md)
 
-## Documentation
+## Tài Liệu
 
-- [`docs/architecture_report.md`](docs/architecture_report.md): system architecture report.
-- [`docs/source_reading_guide.md`](docs/source_reading_guide.md): recommended reading order and important logic.
-- [`docs/design_document.md`](docs/design_document.md): design notes.
-- [`docs/analysis_report.md`](docs/analysis_report.md): benchmark analysis report.
-- [`docs/demo_script.md`](docs/demo_script.md): screen recording/demo script.
-- [`docs/presentation_outline.md`](docs/presentation_outline.md): presentation outline.
-- [`docs/data_generation_guide.md`](docs/data_generation_guide.md): data generation guide.
+- [`docs/architecture_report.md`](docs/architecture_report.md): báo cáo kiến trúc hệ thống.
+- [`docs/source_reading_guide.md`](docs/source_reading_guide.md): thứ tự đọc source code và các logic quan trọng.
+- [`docs/design_document.md`](docs/design_document.md): ghi chú thiết kế.
+- [`docs/analysis_report.md`](docs/analysis_report.md): báo cáo phân tích benchmark.
+- [`docs/demo_script.md`](docs/demo_script.md): kịch bản quay màn hình/demo.
+- [`docs/presentation_outline.md`](docs/presentation_outline.md): dàn ý thuyết trình.
+- [`docs/data_generation_guide.md`](docs/data_generation_guide.md): hướng dẫn sinh dữ liệu.
 
-## Project Status
+## Trạng Thái Dự Án
 
-The implementation includes the core recovery engine, API layer, WebSocket stream, demo UI, benchmark UI, WAL inspector, data generators, benchmark pipeline, documentation artifacts, and automated tests.
+Implementation hiện tại bao gồm core recovery engine, API layer, WebSocket stream, demo UI, benchmark UI, WAL inspector, data generators, benchmark pipeline, documentation artifacts và automated tests.
 
-The current model intentionally simplifies real database internals. Snapshot pages are scalar values, checkpoint metadata is compact, and WAL scanning is designed for simulator-scale workloads rather than production-scale log processing.
+Mô hình hiện tại cố ý đơn giản hóa database internals thực tế. Snapshot pages là scalar values, checkpoint metadata được nén gọn, và WAL scanning được thiết kế cho simulator-scale workloads thay vì production-scale log processing.

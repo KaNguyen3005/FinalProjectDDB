@@ -1,170 +1,170 @@
-# Bao cao kien truc he thong
+# Báo Cáo Kiến Trúc Hệ Thống
 
-## 1. Tong quan
+## 1. Tổng Quan
 
-Du an nay la mot simulator va benchmark cho Recovery Time Objective (RTO) trong mot he thong database phan tan gia lap. Muc tieu chinh la quan sat checkpoint interval anh huong nhu the nao den thoi gian phuc hoi sau crash.
+Dự án này là một simulator và bộ benchmark cho `Recovery Time Objective` (`RTO`) trong một hệ thống database phân tán giả lập. Mục tiêu chính là quan sát `checkpoint interval` ảnh hưởng như thế nào đến thời gian `recovery` sau khi một node bị crash.
 
-He thong gom 6 lop chinh:
+Hệ thống gồm 6 lớp chính:
 
 - Core recovery engine trong `src/`
 - FastAPI backend trong `api/`
 - WebSocket event stream cho UI realtime
 - Browser UI trong `ui/`
-- Benchmark va thong ke trong `benchmark/`
-- Data generation va demo scenario trong `data_gen/`
+- Benchmark và thống kê trong `benchmark/`
+- Data generation và demo scenario trong `data_gen/`
 
-Luon can phan biet ro: day la simulator cho muc dich hoc thuat/benchmark, khong phai distributed database production.
+Cần phân biệt rõ: đây là simulator phục vụ học thuật, demo và benchmark. Dự án không phải là distributed database production.
 
-## 2. Kien truc thu muc
+## 2. Kiến Trúc Thư Mục
 
-`run.py` la entry point de khoi dong web app FastAPI.
+`run.py` là entry point để khởi động web app FastAPI.
 
-`src/` chua logic cot loi:
+`src/` chứa logic cốt lõi:
 
-- `src/log/log_record.py`: dinh nghia binary WAL record, record type, LSN va writer/reader.
-- `src/storage.py`: thao tac snapshot page don gian bang file nhi phan.
-- `src/checkpoint/checkpoint_manager.py`: ghi BEGIN_CHECKPOINT va END_CHECKPOINT.
-- `src/recovery/recovery_manager.py`: thuat toan recovery gom Analysis, Partial Redo, Global Undo va xu ly transaction in-doubt.
-- `src/coordinator/coordinator.py`: coordinator simulator cho 2PC decision.
-- `src/crash/`: tien ich crash/recovery timing.
+- `src/log/log_record.py`: định nghĩa binary WAL record, `RecordType`, `LSN` và writer/reader.
+- `src/storage.py`: thao tác snapshot page đơn giản bằng file nhị phân.
+- `src/checkpoint/checkpoint_manager.py`: ghi `BEGIN_CHECKPOINT` và `END_CHECKPOINT`.
+- `src/recovery/recovery_manager.py`: thuật toán recovery gồm `Analysis`, `Partial Redo`, `Global Undo` và xử lý `in-doubt transaction`.
+- `src/coordinator/coordinator.py`: coordinator simulator cho quyết định `2PC`.
+- `src/crash/`: tiện ích crash injection và đo thời gian recovery.
 - `src/integrity/`: checksum snapshot.
 
-`api/` chua backend:
+`api/` chứa backend:
 
-- `api/app.py`: tao FastAPI app, gan REST router, static UI va WebSocket.
-- `api/state.py`: trang thai runtime cua demo va benchmark.
-- `api/routers/demo.py`: API dieu khien demo scenario, crash, recover.
-- `api/routers/benchmark.py`: API chay benchmark nen va lay ket qua.
+- `api/app.py`: tạo FastAPI app, gắn REST router, static UI và WebSocket.
+- `api/state.py`: trạng thái runtime của demo và benchmark.
+- `api/routers/demo.py`: API điều khiển demo scenario, crash và recover.
+- `api/routers/benchmark.py`: API chạy benchmark nền và lấy kết quả.
 - `api/routers/logs.py`: API xem WAL records.
-- `api/websocket/events.py`: factory tao event payload.
-- `api/websocket/manager.py`: quan ly WebSocket clients.
+- `api/websocket/events.py`: factory tạo event payload.
+- `api/websocket/manager.py`: quản lý WebSocket clients.
 
-`benchmark/` chua pipeline benchmark:
+`benchmark/` chứa pipeline benchmark:
 
-- `benchmark_runner.py`: chay ma tran interval x run.
-- `stats_analyzer.py`: tong hop raw JSON thanh summary CSV.
-- `cost_model.py`: uoc luong chi phi I/O, CPU, communication va RTO ly thuyet.
-- `chart_generator.py`: sinh chart tu summary.
+- `benchmark_runner.py`: chạy ma trận `checkpoint interval x run`.
+- `stats_analyzer.py`: tổng hợp raw JSON thành summary CSV.
+- `cost_model.py`: ước lượng chi phí I/O, CPU, communication và theoretical RTO.
+- `chart_generator.py`: sinh chart từ summary.
 
-`data_gen/` chua bo sinh du lieu:
+`data_gen/` chứa bộ sinh dữ liệu:
 
-- `generate_logs.py`: sinh WAL va snapshot ngau nhien co tai lap bang seed.
-- `demo_scenarios.py`: sinh cac scenario co chu dich cho UI demo.
-- `generate_full_scale_dataset.py`: sinh dataset lon.
-- `generate_snapshot.py`: tao snapshot rieng.
+- `generate_logs.py`: sinh WAL và snapshot ngẫu nhiên có thể tái lập bằng seed.
+- `demo_scenarios.py`: sinh các scenario có chủ đích cho UI demo.
+- `generate_full_scale_dataset.py`: sinh dataset lớn.
+- `generate_snapshot.py`: tạo snapshot riêng.
 
-`ui/` chua frontend tinh bang HTML/CSS/vanilla JS:
+`ui/` chứa frontend tĩnh bằng HTML/CSS/vanilla JavaScript:
 
 - `demo.html`: dashboard demo crash/recovery.
 - `benchmark.html`: dashboard benchmark.
 - `logs.html`: WAL inspector.
-- `ui/js/ws-client.js`: WebSocket client dung chung.
-- `ui/js/demo.js`, `benchmark.js`, `logs.js`: logic tung man hinh.
+- `ui/js/ws-client.js`: WebSocket client dùng chung.
+- `ui/js/demo.js`, `benchmark.js`, `logs.js`: logic từng màn hình.
 
-`tests/` la pytest suite bao ve format WAL, recovery, API, benchmark va data generation.
+`tests/` là pytest suite bảo vệ format WAL, recovery, API, benchmark và data generation.
 
-## 3. Kien truc runtime
+## 3. Kiến Trúc Runtime
 
-Khi chay:
+Khi chạy:
 
 ```bash
 python run.py
 ```
 
-`run.py` goi `uvicorn.run("api.app:app")`. FastAPI app duoc tao trong `api/app.py` bang `create_app()`.
+`run.py` gọi `uvicorn.run("api.app:app")`. FastAPI app được tạo trong `api/app.py` bằng `create_app()`.
 
-App gan cac route:
+App gắn các route chính:
 
 - `/api/health`: health check.
-- `/api/demo/*`: demo scenario, crash va recover.
-- `/api/benchmark/*`: benchmark run, status, results.
-- `/api/logs/*`: doc va stream WAL records.
+- `/api/demo/*`: demo scenario, crash và recover.
+- `/api/benchmark/*`: benchmark run, status và results.
+- `/api/logs/*`: đọc và stream WAL records.
 - `/ws/events`: WebSocket event stream.
-- `/demo`, `/benchmark`, `/logs`: tra ve UI HTML.
+- `/demo`, `/benchmark`, `/logs`: trả về UI HTML.
 
-UI goi REST API de bat dau hanh dong, sau do lang nghe WebSocket de hien thi node status, WAL log entries, recovery pass va benchmark progress.
+UI gọi REST API để bắt đầu hành động, sau đó lắng nghe WebSocket để hiển thị node status, WAL log entries, recovery pass và benchmark progress.
 
-## 4. Mo hinh du lieu
+## 4. Mô Hình Dữ Liệu
 
-Snapshot la file nhi phan gom nhieu page. Trong simulator, moi page chi la mot so nguyen 64-bit. `src/storage.py` doc/ghi page bang offset:
+Snapshot là file nhị phân gồm nhiều page. Trong simulator, mỗi page là một số nguyên 64-bit. `src/storage.py` đọc/ghi page bằng offset:
 
 ```text
 offset = page_id * 8
 ```
 
-WAL la file nhi phan record-aligned. Moi record co kich thuoc co dinh `LogRecord.SIZE`.
+WAL là file nhị phân record-aligned. Mỗi record có kích thước cố định `LogRecord.SIZE`.
 
-Moi `LogRecord` gom cac thong tin quan trong:
+Mỗi `LogRecord` có các trường quan trọng:
 
-- `record_type`: START, UPDATE, COMMIT, ABORT, BEGIN_CHECKPOINT, END_CHECKPOINT, PREPARE, READY.
-- `lsn`: log sequence number tang dan.
+- `record_type`: `START`, `UPDATE`, `COMMIT`, `ABORT`, `BEGIN_CHECKPOINT`, `END_CHECKPOINT`, `PREPARE`, `READY`.
+- `lsn`: log sequence number tăng dần.
 - `txn_id`: transaction id.
-- `page_id`: page bi sua, chi co y nghia voi UPDATE.
-- `before_image`: gia tri truoc update, dung cho UNDO.
-- `after_image`: gia tri sau update, dung cho REDO.
-- `redo_lsn`: diem bat dau redo ghi trong END_CHECKPOINT.
-- `node_id`: node phat sinh record.
-- `timestamp`: thoi diem tao record.
+- `page_id`: page bị sửa, chỉ có ý nghĩa với `UPDATE`.
+- `before_image`: giá trị trước update, dùng cho `undo`.
+- `after_image`: giá trị sau update, dùng cho `redo`.
+- `redo_lsn`: điểm bắt đầu redo ghi trong `END_CHECKPOINT`.
+- `node_id`: node phát sinh record.
+- `timestamp`: thời điểm tạo record.
 
-## 5. Luong sinh du lieu
+## 5. Luồng Sinh Dữ Liệu
 
-`data_gen/generate_logs.py` tao snapshot moi, xoa WAL cu, roi sinh transaction:
+`data_gen/generate_logs.py` tạo snapshot mới, xóa WAL cũ, rồi sinh transaction:
 
-1. Ghi checkpoint ban dau.
-2. Voi moi transaction: ghi START.
-3. Ghi 1 den 3 UPDATE.
-4. Mot so update duoc flush vao snapshot de tao tinh huong can UNDO.
-5. Ket thuc bang COMMIT, ABORT hoac PREPARE/READY.
-6. Dinh ky ghi checkpoint theo `checkpoint_every`.
+1. Ghi checkpoint ban đầu.
+2. Với mỗi transaction, ghi `START`.
+3. Ghi 1 đến 3 `UPDATE`.
+4. Một số update được flush vào snapshot để tạo tình huống cần `undo`.
+5. Kết thúc bằng `COMMIT`, `ABORT` hoặc `PREPARE`/`READY`.
+6. Định kỳ ghi checkpoint theo `checkpoint_every`.
 
-`data_gen/demo_scenarios.py` khac voi generator ngau nhien: no tao WAL theo kich ban co chu dich de minh hoa tung truong hop recovery.
+`data_gen/demo_scenarios.py` khác với generator ngẫu nhiên: file này tạo WAL theo kịch bản có chủ đích để minh họa từng trường hợp recovery.
 
-## 6. Luong recovery cot loi
+## 6. Luồng Recovery Cốt Lõi
 
-`RecoveryManager.recover()` la ham trung tam. No doc toan bo WAL roi chay cac buoc:
+`RecoveryManager.recover()` là hàm trung tâm. Hàm này đọc toàn bộ WAL rồi chạy các bước:
 
-1. Analysis pass
-   - Tim `redo_lsn` tu END_CHECKPOINT hop le gan nhat.
-   - Quet log tu `redo_lsn`.
-   - Xac dinh trang thai transaction: LOSER, COMMITTED, ABORTED, IN_DOUBT.
+1. `Analysis pass`
+   - Tìm `redo_lsn` từ `END_CHECKPOINT` hợp lệ gần nhất.
+   - Quét log từ `redo_lsn`.
+   - Xác định trạng thái transaction: `LOSER`, `COMMITTED`, `ABORTED`, `IN_DOUBT`.
 
-2. Checkpoint failure detection
-   - Neu co BEGIN_CHECKPOINT cuoi cung ma khong co END_CHECKPOINT sau no, he thong xem checkpoint do bi crash giua chung.
-   - Recovery bo qua checkpoint chua hoan tat va dung checkpoint hop le truoc do.
+2. `Checkpoint failure detection`
+   - Nếu có `BEGIN_CHECKPOINT` cuối cùng nhưng không có `END_CHECKPOINT` sau nó, hệ thống xem checkpoint đó đã bị crash giữa chừng.
+   - Recovery bỏ qua checkpoint chưa hoàn tất và dùng checkpoint hợp lệ trước đó.
 
-3. Partial Redo
-   - Duyet UPDATE tu `redo_lsn`.
-   - Chi redo transaction da COMMIT.
-   - Ghi `after_image` vao snapshot.
+3. `Partial Redo`
+   - Duyệt `UPDATE` từ `redo_lsn`.
+   - Chỉ redo transaction đã `COMMIT`.
+   - Ghi `after_image` vào snapshot.
 
-4. Global Undo
-   - Duyet nguoc WAL.
-   - Undo transaction LOSER hoac ABORTED.
-   - Ghi `before_image` vao snapshot.
+4. `Global Undo`
+   - Duyệt ngược WAL.
+   - Undo transaction `LOSER` hoặc `ABORTED`.
+   - Ghi `before_image` vào snapshot.
 
-5. In-doubt handling
-   - Transaction PREPARE/READY nhung chua COMMIT/ABORT duoc danh dau IN_DOUBT.
-   - Neu co coordinator resolver, recovery hoi coordinator de biet COMMIT hay ABORT.
-   - Neu COMMIT thi redo `after_image`; neu ABORT thi undo `before_image`.
+5. `In-doubt handling`
+   - Transaction có `PREPARE`/`READY` nhưng chưa có `COMMIT`/`ABORT` được đánh dấu `IN_DOUBT`.
+   - Nếu có coordinator resolver, recovery hỏi coordinator để biết quyết định cuối cùng là `COMMIT` hay `ABORT`.
+   - Nếu `COMMIT` thì redo `after_image`; nếu `ABORT` thì undo `before_image`.
 
-6. Hoan tat
-   - Tinh `rto_seconds`.
-   - Phat event `rto_complete`.
-   - Tra ve `RecoveryResult`.
+6. Hoàn tất
+   - Tính `rto_seconds`.
+   - Phát event `rto_complete`.
+   - Trả về `RecoveryResult`.
 
-## 7. Luong demo realtime
+## 7. Luồng Demo Realtime
 
-Demo UI chay theo pattern:
+Demo UI chạy theo pattern:
 
-1. User chon scenario hoac config custom.
-2. `api/routers/demo.py` sinh WAL/snapshot tu `data_gen`.
-3. Backend stream tung WAL record ra WebSocket de UI hien thi log dang chay.
-4. User bam crash, backend dung stream va doi node status thanh CRASHED.
-5. User bam recover, backend goi `RecoveryManager.recover()`.
-6. Recovery events duoc thu lai, sau do broadcast co delay ngan de UI hien thi tung buoc.
-7. Node chuyen sang CONSISTENT khi recovery thanh cong.
+1. User chọn scenario hoặc config custom.
+2. `api/routers/demo.py` sinh WAL/snapshot từ `data_gen`.
+3. Backend stream từng WAL record ra WebSocket để UI hiển thị log đang chạy.
+4. User bấm crash, backend dừng stream và đổi node status thành `CRASHED`.
+5. User bấm recover, backend gọi `RecoveryManager.recover()`.
+6. Recovery events được thu lại, sau đó broadcast có delay ngắn để UI hiển thị từng bước.
+7. Node chuyển sang `CONSISTENT` khi recovery thành công.
 
-Cac event WebSocket duoc tao trong `api/websocket/events.py`, vi du:
+Các event WebSocket được tạo trong `api/websocket/events.py`, ví dụ:
 
 - `node_status`
 - `crash`
@@ -175,22 +175,22 @@ Cac event WebSocket duoc tao trong `api/websocket/events.py`, vi du:
 - `coordinator_query`
 - `benchmark_progress`
 
-## 8. Luong benchmark
+## 8. Luồng Benchmark
 
-Benchmark co hai che do:
+Benchmark có hai chế độ:
 
-- `generated`: moi run sinh WAL/snapshot rieng, sau do recovery that tren snapshot.
-- `full_scale`: doc dataset lon co san va scan cua so WAL theo interval de uoc luong cong viec recovery.
+- `generated`: mỗi run sinh WAL/snapshot riêng, sau đó recovery thật trên snapshot.
+- `full_scale`: đọc dataset lớn có sẵn và scan cửa sổ WAL theo interval để ước lượng công việc recovery.
 
-`benchmark_runner.py` chay:
+`benchmark_runner.py` chạy:
 
-1. Duyet danh sach checkpoint intervals.
-2. Voi moi interval, chay `runs` lan.
-3. Ghi raw JSON vao `results/raw/`.
-4. Goi `stats_analyzer.analyze_raw_dir()`.
-5. Ghi summary CSV vao `results/summary.csv`.
+1. Duyệt danh sách checkpoint intervals.
+2. Với mỗi interval, chạy `runs` lần.
+3. Ghi raw JSON vào `results/raw/`.
+4. Gọi `stats_analyzer.analyze_raw_dir()`.
+5. Ghi summary CSV vào `results/summary.csv`.
 
-`stats_analyzer.py` tinh:
+`stats_analyzer.py` tính:
 
 - mean RTO
 - median RTO
@@ -201,34 +201,25 @@ Benchmark co hai che do:
 - communication cost
 - theoretical RTO
 
-## 9. Chat luong va gioi han
+## 9. Chất Lượng Và Giới Hạn
 
-Nhung diem he thong da co:
+Những điểm hệ thống đã có:
 
 - WAL binary record-aligned.
-- Snapshot page read/write co offset ro rang.
-- Recovery phases tach ham rieng.
-- In-doubt 2PC transaction co coordinator simulator.
-- API/UI co realtime event stream.
-- Benchmark co raw output va summary output.
-- Test suite bao ve cac duong chay chinh.
+- Snapshot page read/write có offset rõ ràng.
+- Recovery phases tách hàm riêng.
+- `In-doubt 2PC transaction` có coordinator simulator.
+- API/UI có realtime event stream.
+- Benchmark có raw output và summary output.
+- Test suite bảo vệ các đường chạy chính.
 
-Gioi han can neu trong bao cao:
+Giới hạn cần nêu rõ:
 
-- Snapshot page chi la so nguyen 64-bit, khong phai data page that.
-- Recovery doc WAL vao memory bang `list(iter_log_records(...))`, phu hop simulator nhung khong toi uu cho log rat lon.
-- Checkpoint metadata don gian, chua luu dirty page table hay active transaction table day du.
-- Full-scale benchmark mode khong apply snapshot recovery day du; no mo phong scan window va dem chi phi.
-- WebSocket event stream phuc vu visualization, khong phai event bus production.
+- Snapshot page chỉ là số nguyên 64-bit, không phải data page thật.
+- Recovery đọc WAL vào memory bằng `list(iter_log_records(...))`, phù hợp simulator nhưng không tối ưu cho log rất lớn.
+- Checkpoint metadata đơn giản, chưa lưu dirty page table hay active transaction table đầy đủ.
+- Cost model dùng proxy để so sánh xu hướng, không thay thế đo đạc trên distributed database production.
 
-## 10. Ket luan kien truc
+## 10. Kết Luận
 
-Kien truc hien tai phu hop muc tieu project: minh hoa anh huong cua checkpoint interval den RTO, dong thoi cho thay cac thanh phan quan trong cua disaster recovery: WAL, checkpoint, redo, undo, in-doubt 2PC va benchmark/statistics.
-
-Neu mo rong thanh simulator nang cao hon, cac huong nen uu tien la:
-
-- Them checkpoint metadata gan voi dirty page table va transaction table.
-- Doc WAL streaming thay vi load toan bo.
-- Them nhieu node co log rieng va coordinator protocol ro hon.
-- Them failure model phuc tap hon: network partition, coordinator crash, partial disk write.
-- Them invariant checker sau recovery.
+Kiến trúc hiện tại đáp ứng mục tiêu của đồ án: mô phỏng crash/recovery, minh họa WAL và checkpoint, đo RTO theo checkpoint interval, hiển thị realtime trên UI và tạo dữ liệu benchmark có thể phân tích lại.

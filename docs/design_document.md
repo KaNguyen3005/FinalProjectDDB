@@ -1,29 +1,29 @@
-# Design Document: RTO Disaster Recovery Benchmark
+# Tài Liệu Thiết Kế: RTO Disaster Recovery Benchmark
 
-## Scope
+## 1. Phạm Vi
 
-This project measures how checkpoint frequency affects the Recovery Time Objective (RTO) of a crashed distributed database node. The implementation is intentionally small enough to run on a laptop, but it preserves the recovery concepts required by the roadmap:
+Dự án đo `checkpoint frequency` ảnh hưởng như thế nào đến `Recovery Time Objective` (`RTO`) của một distributed database node sau crash. Phần triển khai được giữ đủ nhỏ để chạy trên laptop, nhưng vẫn bảo toàn các khái niệm recovery quan trọng trong roadmap:
 
-- Write-ahead log records with before and after images.
-- BEGIN_CHECKPOINT and END_CHECKPOINT markers.
-- Analysis, Partial Redo, and Global Undo recovery phases.
-- 2PC PREPARE/READY records and in-doubt transaction detection.
-- A repeatable benchmark matrix with controlled inputs.
-- A browser UI for live crash and recovery demonstration.
+- `Write-Ahead Log` (`WAL`) có `before_image` và `after_image`.
+- Marker `BEGIN_CHECKPOINT` và `END_CHECKPOINT`.
+- Các phase recovery: `Analysis`, `Partial Redo`, `Global Undo`.
+- Record `2PC PREPARE`/`READY` và phát hiện `in-doubt transaction`.
+- Ma trận benchmark có input kiểm soát được.
+- Browser UI để demo crash và recovery realtime.
 
-## Architecture
+## 2. Kiến Trúc
 
 ```text
 Browser UI
-  /demo        live crash and recovery dashboard
-  /benchmark   benchmark charts and summary table
-  /logs        paginated WAL inspector
+  /demo        dashboard crash và recovery realtime
+  /benchmark   chart benchmark và bảng summary
+  /logs        WAL inspector có phân trang
       |
       | REST control/results + WebSocket events
       v
 FastAPI backend
   api/routers/demo.py       crash, recover, configure demo
-  api/routers/benchmark.py  background benchmark run and results
+  api/routers/benchmark.py  background benchmark run và results
   api/routers/logs.py       WAL record inspection
   api/websocket/*           event fan-out
       |
@@ -33,74 +33,98 @@ Core engine
   src/storage.py            binary snapshot pages
   src/checkpoint/           checkpoint markers
   src/recovery/             Analysis, Partial Redo, Global Undo
-  src/crash/                crash injection and RTO timer
+  src/crash/                crash injection và RTO timer
       |
       v
 Generated data and results
-  data/                     generated WAL and snapshots
+  data/                     generated WAL và snapshots
   results/raw/              per-run benchmark JSON
   results/summary.csv       aggregate statistics
   results/charts/           generated SVG report charts
 ```
 
-## Recovery Flow
+Thiết kế tách rõ phần core và phần trình diễn:
 
-The recovery manager maps directly to the textbook terminology used in the roadmap.
+- Core engine không phụ thuộc FastAPI hay UI.
+- API chỉ điều phối action, stream event và trả result.
+- UI hiển thị trạng thái realtime nhưng không giữ logic recovery.
+- Benchmark dùng lại recovery engine để đo RTO.
 
-| Step | Implementation | Textbook mapping | Purpose |
+## 3. Recovery Flow
+
+`RecoveryManager` ánh xạ trực tiếp với thuật ngữ trong roadmap.
+
+| Bước | Implementation | Mapping lý thuyết | Mục đích |
 |---|---|---|---|
-| 1 | Locate the latest END_CHECKPOINT redo LSN | Appendix C.6 checkpointing | Avoid scanning the full log after every crash. |
-| 2 | Analysis pass builds transaction states | Appendix C.6 WAL recovery | Classify transactions as COMMITTED, ABORTED, LOSER, or IN_DOUBT. |
-| 3 | Partial Redo reapplies committed UPDATE after images | Appendix C.6 Partial Redo | Enforce durability for committed updates after checkpoint. |
-| 4 | Global Undo restores before images for loser or aborted transactions | Appendix C.6 Global Undo | Enforce atomicity for incomplete work. |
-| 5 | PREPARE/READY without COMMIT/ABORT becomes IN_DOUBT | Section 5.4.3 site failure and 2PC | Do not unilaterally undo a participant that may have committed globally. |
+| 1 | Tìm `redo_lsn` của `END_CHECKPOINT` mới nhất | Checkpointing | Tránh scan toàn bộ log sau mỗi crash. |
+| 2 | `Analysis pass` xây transaction states | WAL recovery | Phân loại transaction thành `COMMITTED`, `ABORTED`, `LOSER`, `IN_DOUBT`. |
+| 3 | `Partial Redo` áp dụng lại `after_image` của committed `UPDATE` | Partial Redo | Đảm bảo durability cho committed updates sau checkpoint. |
+| 4 | `Global Undo` khôi phục `before_image` cho loser hoặc aborted transactions | Global Undo | Đảm bảo atomicity cho công việc chưa hoàn tất. |
+| 5 | `PREPARE`/`READY` không có quyết định cuối trở thành `IN_DOUBT` | Site failure và 2PC | Không tự ý undo participant có thể đã commit ở mức global. |
 
-The implementation uses an ARIES-like pass structure internally, but the externally visible event names, UI labels, and report terminology use the Partial Redo and Global Undo terms from the project roadmap.
+Implementation dùng cấu trúc pass giống ARIES ở mức ý tưởng, nhưng event name, UI label và thuật ngữ báo cáo vẫn theo `Partial Redo` và `Global Undo` trong roadmap.
 
-## WAL Record Model
+## 4. WAL Record Model
 
-`src/log/log_record.py` stores fixed-size binary records. The supported record types are:
+`src/log/log_record.py` lưu fixed-size binary records. Các record type được hỗ trợ:
 
-| Type | Meaning |
+| Type | Ý nghĩa |
 |---|---|
-| START | Transaction begins. |
-| UPDATE | Carries page id, before image, and after image. |
-| COMMIT | Transaction committed; redo after images during recovery. |
-| ABORT | Transaction aborted; undo before images during recovery. |
-| BEGIN_CHECKPOINT | Checkpoint started. |
-| END_CHECKPOINT | Dirty pages flushed; recovery can start from its redo LSN. |
-| PREPARE | 2PC prepare decision was logged. |
-| READY | Participant voted yes and is waiting for final decision. |
+| `START` | Transaction bắt đầu. |
+| `UPDATE` | Chứa `page_id`, `before_image` và `after_image`. |
+| `COMMIT` | Transaction đã commit; recovery redo `after_image`. |
+| `ABORT` | Transaction đã abort; recovery undo `before_image`. |
+| `BEGIN_CHECKPOINT` | Checkpoint bắt đầu. |
+| `END_CHECKPOINT` | Dirty pages đã được flush; recovery có thể bắt đầu từ `redo_lsn`. |
+| `PREPARE` | Quyết định prepare của `2PC` đã được log. |
+| `READY` | Participant vote yes và đang chờ quyết định cuối. |
 
-## Crash Injection Methodology
+WAL được thiết kế record-aligned để reader có thể đọc tuần tự và phát hiện record không hợp lệ.
 
-The demo path creates a repeatable WAL and snapshot for the selected checkpoint interval. A crash marks Node A as failed, records the crash timestamp, and starts the UI stopwatch. Recovery then invokes `RecoveryManager.recover()` over the current log and snapshot. The RTO measurement starts immediately before recovery work begins and stops after the snapshot is consistent and the recovery result is emitted.
+## 5. Snapshot Model
 
-## Variable Control
+Snapshot được mô phỏng bằng file nhị phân. Mỗi page là một số nguyên 64-bit, và offset được tính bằng:
+
+```text
+offset = page_id * 8
+```
+
+Mô hình này đơn giản hơn database page thật, nhưng đủ để minh họa hiệu ứng của `redo` và `undo`:
+
+- `redo` ghi `after_image` vào page.
+- `undo` ghi `before_image` vào page.
+
+## 6. Crash Injection Methodology
+
+Demo path tạo WAL và snapshot có thể tái lập cho checkpoint interval hoặc scenario được chọn. Khi crash xảy ra, Node A được đánh dấu failed, timestamp crash được ghi lại và UI stopwatch bắt đầu.
+
+Recovery gọi `RecoveryManager.recover()` trên log và snapshot hiện tại. Đo RTO bắt đầu ngay trước khi recovery work chạy và dừng sau khi snapshot nhất quán, result được tạo và event hoàn tất được phát ra.
+
+## 7. Variable Control
 
 | Variable | Control strategy |
 |---|---|
-| Checkpoint interval | Independent variable: 1, 2, 5, 10, 20, 30 minutes in the full benchmark. |
-| Randomness | Seeded generator; benchmark runner derives per-run seeds from base seed, interval, and run id. |
-| Transaction count | Fixed per benchmark invocation through `--transactions`. |
-| Snapshot size | Fixed per benchmark invocation through `--pages`. |
-| Transaction rate for cost model | Fixed through `--txn-rate`, default 10 transactions per second. |
-| Hardware and process overhead | All intervals run through the same Python engine and benchmark runner. |
-| Statistical repetition | Full target is 10 runs per interval; smoke baseline may use fewer runs. |
+| `Checkpoint interval` | Independent variable: 1, 2, 5, 10, 20, 30 phút trong full benchmark. |
+| Randomness | Seeded generator; benchmark runner suy ra per-run seed từ base seed, interval và run id. |
+| Transaction count | Cố định theo `--transactions`. |
+| Snapshot size | Cố định theo `--pages`. |
+| Transaction rate cho cost model | Cố định bằng `--txn-rate`, mặc định 10 transactions/second. |
+| Hardware và process overhead | Tất cả interval chạy qua cùng Python engine và benchmark runner. |
+| Statistical repetition | Full target là 10 runs mỗi interval; smoke baseline có thể dùng ít runs hơn. |
 
-## UI Architecture
+## 8. Kiến Trúc UI
 
-The UI is static HTML/CSS/JavaScript served by FastAPI. REST endpoints trigger actions and fetch persisted results, while `/ws/events` streams live events for the demo dashboard.
+UI là HTML/CSS/JavaScript tĩnh được serve bởi FastAPI. REST endpoints kích hoạt action và lấy persisted results, còn `/ws/events` stream live events cho demo dashboard.
 
-| Page | Main behavior |
+| Page | Hành vi chính |
 |---|---|
-| `/demo` | Configure interval, crash Node A, recover, stream log entries and recovery phases. |
-| `/benchmark` | Launch small benchmark, show progress, render RTO and cost charts. |
-| `/logs` | Inspect WAL records with node filter and pagination. |
+| `/demo` | Configure interval, crash Node A, recover, stream log entries và recovery phases. |
+| `/benchmark` | Launch benchmark nhỏ, hiển thị progress, render RTO và cost charts. |
+| `/logs` | Inspect WAL records với node filter và pagination. |
 
-The UI deliberately avoids hidden server-side state in the browser. Page load calls status/result endpoints first, then WebSocket events update the visible state.
+UI tránh giấu server-side state trong browser. Khi page load, UI gọi status/result endpoints trước, sau đó WebSocket events cập nhật trạng thái hiển thị.
 
-## Reproducibility
+## 9. Reproducibility
 
 ```bash
 python benchmark/benchmark_runner.py --intervals 1 2 5 10 20 30 --runs 10 --seed 42
@@ -108,4 +132,4 @@ python benchmark/chart_generator.py
 python -m pytest tests/ -v
 ```
 
-The report charts are regenerated from `results/summary.csv`, so the documented analysis can be reproduced after any new benchmark run.
+Report charts được regenerate từ `results/summary.csv`, vì vậy phần analysis có thể tái lập sau mỗi benchmark run mới.

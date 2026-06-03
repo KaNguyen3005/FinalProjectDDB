@@ -1,6 +1,12 @@
+import asyncio
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from api.app import app
+from api.state import ROOT
+from api.routers import demo as demo_router
+from src.storage import create_snapshot
 
 
 client = TestClient(app)
@@ -80,6 +86,215 @@ def test_demo_config_crash_recover_flow():
     assert "rto_seconds" in recovered.json()["recovery"]
 
 
+def test_demo_recent_log_includes_recovery_events_after_recover():
+    client.post(
+        "/api/demo/config",
+        json={"checkpoint_interval_min": 1, "transactions": 20, "pages": 10, "seed": 42},
+    )
+    client.post("/api/demo/crash")
+    recovered = client.post("/api/demo/recover")
+    recent_log = client.get("/api/demo/recent-log?limit=500")
+
+    event_types = [event["type"] for event in recent_log.json()["events"]]
+    assert recovered.status_code == 200
+    assert "log_entry" in event_types
+    assert "recovery_pass" in event_types
+    assert "recovery_record" in event_types
+    assert "rto_complete" in event_types
+
+
+def test_demo_config_creates_new_log_file_for_each_apply():
+    first = client.post(
+        "/api/demo/config",
+        json={"checkpoint_interval_min": 1, "transactions": 5, "pages": 5, "seed": 11},
+    )
+    first_body = first.json()
+    first_log = ROOT / first_body["log_path"]
+    first_size = first_log.stat().st_size
+
+    second = client.post(
+        "/api/demo/config",
+        json={"checkpoint_interval_min": 2, "transactions": 6, "pages": 5, "seed": 12},
+    )
+    second_body = second.json()
+    second_log = ROOT / second_body["log_path"]
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first_body["run_id"] != second_body["run_id"]
+    assert first_log != second_log
+    assert first_log.exists()
+    assert second_log.exists()
+    assert first_log.stat().st_size == first_size
+
+
+def test_demo_log_stream_does_not_move_current_lsn_backwards(monkeypatch):
+    record = SimpleNamespace(
+        lsn=1,
+        txn_id=7,
+        record_type=SimpleNamespace(name="START"),
+        node_id="A",
+        page_id=None,
+        before_image=-1,
+        after_image=-1,
+        redo_lsn=-1,
+        timestamp=0.0,
+    )
+    broadcasted = []
+
+    async def fake_broadcast(event):
+        broadcasted.append(event)
+
+    monkeypatch.setattr(demo_router, "iter_log_records", lambda path: [record])
+    monkeypatch.setattr(demo_router.manager, "broadcast", fake_broadcast)
+
+    demo_router.demo_state.current_lsn = 999
+    demo_router.demo_state.current_txn = 88
+    demo_router.demo_state.stream_lsn = 0
+    demo_router.demo_state.stream_txn = 0
+    demo_router.demo_state.crashed_at = None
+    demo_router.demo_state.log_stream_task = None
+    demo_router.demo_state.log_stream_generation = 123
+
+    asyncio.run(demo_router._stream_log_records(123))
+
+    assert demo_router.demo_state.current_lsn == 999
+    assert demo_router.demo_state.current_txn == 88
+    assert demo_router.demo_state.stream_lsn == 1
+    assert demo_router.demo_state.stream_txn == 7
+    assert broadcasted[0]["type"] == "log_entry"
+
+
+def test_demo_log_stream_starts_at_recovery_redo_lsn(monkeypatch):
+    client.post(
+        "/api/demo/config",
+        json={"checkpoint_interval_min": 1, "transactions": 20, "pages": 10, "seed": 42},
+    )
+    start_lsn = demo_router._recovery_stream_start_lsn()
+    broadcasted = []
+
+    async def fake_broadcast(event):
+        broadcasted.append(event)
+
+    monkeypatch.setattr(demo_router.manager, "broadcast", fake_broadcast)
+    demo_router.demo_state.live_events = []
+    demo_router.demo_state.crashed_at = None
+    demo_router.demo_state.log_stream_task = None
+    demo_router.demo_state.log_stream_generation = 456
+
+    asyncio.run(demo_router._stream_log_records(456, start_lsn=start_lsn))
+
+    log_entries = [event for event in broadcasted if event["type"] == "log_entry"]
+    assert log_entries
+    assert log_entries[0]["lsn"] == start_lsn
+    assert all(event["lsn"] >= start_lsn for event in log_entries)
+
+
+def test_demo_log_stream_appends_new_records_without_repeating_transactions(monkeypatch):
+    records = [
+        SimpleNamespace(
+            lsn=10,
+            txn_id=1,
+            record_type=SimpleNamespace(name="START"),
+            node_id="A",
+            page_id=None,
+            before_image=-1,
+            after_image=-1,
+            redo_lsn=-1,
+            timestamp=0.0,
+        ),
+        SimpleNamespace(
+            lsn=11,
+            txn_id=1,
+            record_type=SimpleNamespace(name="UPDATE"),
+            node_id="A",
+            page_id=3,
+            before_image=100,
+            after_image=101,
+            redo_lsn=-1,
+            timestamp=0.0,
+        ),
+    ]
+    broadcasted = []
+
+    async def fake_broadcast(event):
+        broadcasted.append(event)
+
+    appended_txn = {"next_txn": 2, "next_lsn": 12}
+
+    def fake_append_live_transaction():
+        txn_id = appended_txn["next_txn"]
+        lsn = appended_txn["next_lsn"]
+        appended_txn["next_txn"] += 1
+        appended_txn["next_lsn"] += 2
+        return [
+            SimpleNamespace(
+                lsn=lsn,
+                txn_id=txn_id,
+                record_type=SimpleNamespace(name="START"),
+                node_id="A",
+                page_id=None,
+                before_image=-1,
+                after_image=-1,
+                redo_lsn=-1,
+                timestamp=0.0,
+            ),
+            SimpleNamespace(
+                lsn=lsn + 1,
+                txn_id=txn_id,
+                record_type=SimpleNamespace(name="COMMIT"),
+                node_id="A",
+                page_id=None,
+                before_image=-1,
+                after_image=-1,
+                redo_lsn=-1,
+                timestamp=0.0,
+            ),
+        ]
+
+    async def run_stream_briefly():
+        demo_router.demo_state.crashed_at = None
+        demo_router.demo_state.log_stream_generation = 789
+        task = asyncio.create_task(
+            demo_router._stream_log_records(789, start_lsn=10, append_live_workload=True)
+        )
+        await asyncio.sleep(0.34)
+        assert not task.done()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    monkeypatch.setattr(demo_router, "iter_log_records", lambda path: records)
+    monkeypatch.setattr(demo_router.manager, "broadcast", fake_broadcast)
+    monkeypatch.setattr(demo_router, "_append_live_transaction", fake_append_live_transaction)
+
+    asyncio.run(run_stream_briefly())
+
+    log_entries = [event for event in broadcasted if event["type"] == "log_entry"]
+    lsn_txn_pairs = [(event["lsn"], event["txn_id"]) for event in log_entries]
+    assert lsn_txn_pairs[:4] == [(10, 1), (11, 1), (12, 2), (13, 2)]
+    assert len(lsn_txn_pairs) == len(set(lsn_txn_pairs))
+
+
+def test_demo_live_transaction_writes_checkpoint_at_configured_interval(tmp_path):
+    demo_router.demo_state.log_path = tmp_path / "transaction_log.bin"
+    demo_router.demo_state.snapshot_path = tmp_path / "db_snapshot.bin"
+    demo_router.demo_state.checkpoint_interval_min = 1
+    demo_router.demo_state.current_txn = 9
+    create_snapshot(demo_router.demo_state.snapshot_path, 4, seed=1)
+
+    records = demo_router._append_live_transaction()
+    record_types = [record.record_type.name for record in records]
+
+    assert "BEGIN_CHECKPOINT" in record_types
+    assert "END_CHECKPOINT" in record_types
+    begin = next(record for record in records if record.record_type.name == "BEGIN_CHECKPOINT")
+    end = next(record for record in records if record.record_type.name == "END_CHECKPOINT")
+    assert end.redo_lsn == begin.lsn
+
+
 def test_demo_crash_and_recover_selected_node():
     client.post(
         "/api/demo/config",
@@ -142,6 +357,18 @@ def test_demo_recovery_interrupt_endpoint_marks_crash():
     assert body["recovery"]["interrupted"] is True
     assert body["nodes"]["A"] == "CRASHED"
     assert "events_seen" in body["recovery"]
+
+
+def test_demo_recovery_interrupt_preserves_replayed_events():
+    client.post("/api/demo/config", json={"checkpoint_interval_min": 1, "transactions": 20, "pages": 10, "seed": 42})
+    client.post("/api/demo/crash")
+    interrupted = client.post("/api/demo/recover-interrupted", json={"interrupt_after_events": 1})
+    recent_log = client.get("/api/demo/recent-log?limit=500")
+
+    event_types = [event["type"] for event in recent_log.json()["events"]]
+    assert interrupted.status_code == 200
+    assert event_types.index("recovery_pass") < event_types.index("recovery_interrupted")
+    assert "recovery_interrupted" in event_types
 
 
 def test_logs_records_endpoint_returns_generated_records():

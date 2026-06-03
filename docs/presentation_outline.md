@@ -1,63 +1,85 @@
-# Presentation Outline
+# Dàn Ý Thuyết Trình
 
-## Slide 1: Project Question
+## Slide 1: Câu Hỏi Dự Án
 
-Title: RTO Benchmark for Disaster Recovery
+Tiêu đề: `RTO Benchmark for Disaster Recovery`
 
-- Question: how does checkpoint interval affect node recovery time?
-- Metric: mean, median, and P99 RTO.
-- System: simulated distributed database node with WAL, checkpoints, and 2PC records.
+- Câu hỏi: checkpoint interval ảnh hưởng như thế nào đến node recovery time?
+- Metric: mean, median và P99 RTO.
+- Hệ thống: simulated distributed database node với WAL, checkpoints và 2PC records.
 
-## Slide 2: Architecture
+## Slide 2: Mục Tiêu
+
+- Xây dựng simulator crash/recovery có thể chạy trên laptop.
+- Minh họa quan hệ giữa checkpoint interval và RTO.
+- Tạo benchmark pipeline có raw results, summary CSV và charts.
+- Cung cấp UI demo realtime để quan sát WAL, crash và recovery phases.
+
+## Slide 3: Kiến Trúc
 
 - Browser UI: demo, benchmark, WAL inspector.
-- FastAPI backend: REST control/results and WebSocket live events.
+- FastAPI backend: REST control/results và WebSocket live events.
 - Core engine: WAL, snapshot storage, checkpoint manager, recovery manager.
 - Outputs: raw JSON, summary CSV, generated charts.
 
-## Slide 3: Recovery Algorithm
+## Slide 4: WAL Và Snapshot
 
-- Analysis starts from latest END_CHECKPOINT.
-- Partial Redo reapplies after images for committed transactions.
-- Global Undo restores before images for loser or aborted transactions.
-- PREPARE/READY without final decision becomes in-doubt.
+- WAL lưu các record `START`, `UPDATE`, `COMMIT`, `ABORT`, checkpoint, `PREPARE`, `READY`.
+- `UPDATE` chứa `before_image` và `after_image`.
+- Snapshot được mô phỏng bằng binary pages, mỗi page là số nguyên 64-bit.
+- `redo` ghi `after_image`; `undo` ghi `before_image`.
 
-## Slide 4: Experiment Design
+## Slide 5: Recovery Algorithm
+
+- `Analysis` bắt đầu từ `END_CHECKPOINT` hợp lệ mới nhất.
+- `Partial Redo` áp dụng lại `after_image` cho committed transactions.
+- `Global Undo` khôi phục `before_image` cho loser hoặc aborted transactions.
+- `PREPARE`/`READY` không có quyết định cuối trở thành `in-doubt`.
+
+## Slide 6: Experiment Design
 
 - Independent variable: checkpoint interval.
 - Controlled variables: seed, transaction count, snapshot page count, transaction rate.
-- Full matrix: intervals 1, 2, 5, 10, 20, 30 minutes x 10 runs.
+- Full matrix: intervals 1, 2, 5, 10, 20, 30 phút x 10 runs.
 - Statistics: mean, median, P99, standard deviation.
 
-## Slide 5: Cost Model
+## Slide 7: Cost Model
 
 ```text
 Cost = C_io * #IO + C_cpu * #cpu + C_msg * #messages + C_tr * #bytes
 ```
 
-- #IO grows with log bytes since checkpoint.
-- #cpu grows with recovery records processed.
-- #messages grows when in-doubt transactions require coordinator resolution.
+- `#IO` tăng theo log bytes kể từ checkpoint.
+- `#cpu` tăng theo số recovery records được xử lý.
+- `#messages` tăng khi `in-doubt transactions` cần coordinator resolution.
 
-## Slide 6: Results
+## Slide 8: Results
 
-Use:
+Sử dụng:
 
 - `results/charts/rto_vs_interval.svg`
 - `results/charts/cost_breakdown.svg`
 - `results/charts/rto_heatmap.svg`
 
-Main point: the smoke baseline validates the pipeline; the full matrix is needed for the final statistical claim.
+Ý chính: smoke baseline xác nhận pipeline hoạt động; full matrix cần thiết để đưa ra kết luận thống kê cuối cùng.
 
-## Slide 7: Demo
+## Slide 9: Demo
 
 - Crash Node A.
-- Recover and show Analysis, Partial Redo, Global Undo.
-- Show RTO completion and benchmark dashboard.
+- Recover và hiển thị `Analysis`, `Partial Redo`, `Global Undo`.
+- Hiển thị RTO completion và benchmark dashboard.
+- Mở WAL inspector để đối chiếu record thực tế.
 
-## Slide 8: Conclusion
+## Slide 10: Giới Hạn
 
-- The project implements crash recovery end to end.
-- Checkpoint interval directly controls recovery scan length.
-- The benchmark connects measured RTO to the distributed cost model.
-- In-doubt transaction handling demonstrates the distributed recovery case, not only local WAL recovery.
+- Snapshot page là scalar value, không phải database page thật.
+- Checkpoint metadata được đơn giản hóa.
+- Cost model là proxy để so sánh xu hướng, không thay thế benchmark production.
+- Simulator tập trung vào logic recovery, không mô phỏng đầy đủ distributed database runtime.
+
+## Slide 11: Kết Luận
+
+- Project triển khai crash recovery end to end.
+- Checkpoint interval trực tiếp kiểm soát recovery scan length.
+- Benchmark kết nối measured RTO với distributed cost model.
+- Xử lý `in-doubt transaction` minh họa distributed recovery case, không chỉ local WAL recovery.

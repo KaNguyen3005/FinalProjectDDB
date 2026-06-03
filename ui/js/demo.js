@@ -82,6 +82,32 @@ function appendTimeline(text) {
   timeline.scrollTop = timeline.scrollHeight;
 }
 
+async function readJsonOrThrow(res, action) {
+  if (res.ok) {
+    return res.json();
+  }
+  let detail = "";
+  try {
+    const errorBody = await res.json();
+    detail = errorBody.detail ? `: ${errorBody.detail}` : "";
+  } catch {
+    detail = "";
+  }
+  throw new Error(`${action} failed with HTTP ${res.status}${detail}`);
+}
+
+async function withBusyButton(button, label, task) {
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = label;
+  try {
+    return await task();
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
 function appendPhaseTimeline(event) {
   // Recovery pass events are compacted into one readable timeline line.
   const labels = {
@@ -155,6 +181,44 @@ function appendCoordinatorLog(event) {
   logCount.textContent = `${logsRendered} records/events`;
 }
 
+function renderLiveEvent(event, { hydrate = false } = {}) {
+  if (!event || !event.type) return;
+  if (event.type === "log_entry") {
+    appendLog(event);
+  } else if (event.type === "recovery_record") {
+    appendRecoveryLog(event);
+  } else if (event.type === "in_doubt_txn") {
+    inDoubt += 1;
+    metricIndoubt.textContent = String(inDoubt);
+    appendInDoubtLog(event);
+    appendTimeline(event.message);
+  } else if (event.type === "coordinator_query" || event.type === "coordinator_decision") {
+    appendCoordinatorLog(event);
+    appendTimeline(event.message);
+  } else if (event.type === "recovery_pass") {
+    appendPhaseTimeline(event);
+  } else if (event.type === "checkpoint_failure") {
+    checkpointBanner.textContent = event.message;
+    checkpointBanner.dataset.mode = "checkpoint-failure";
+    checkpointBanner.classList.remove("hidden");
+    appendTimeline(event.message);
+  } else if (event.type === "recovery_interrupted") {
+    checkpointBanner.textContent = event.message;
+    checkpointBanner.dataset.mode = "recovery-interrupted";
+    checkpointBanner.classList.remove("hidden");
+    recoveryState.textContent = "interrupted";
+    appendTimeline(event.message);
+  } else if (event.type === "rto_complete") {
+    if (!hydrate) stopStopwatch(event.rto_seconds);
+    recoveryState.textContent = "consistent";
+    appendTimeline(`consistent; RTO=${event.rto_seconds.toFixed(6)}s`);
+  } else if (event.type === "crash") {
+    if (!hydrate) startStopwatch();
+    const elapsed = Number(event.run_elapsed_seconds ?? 0);
+    appendTimeline(`t=${elapsed.toFixed(3)}s crash injected on Node ${event.node}`);
+  }
+}
+
 function resetDemoView(message = "") {
   resetStopwatch();
   timeline.textContent = "";
@@ -181,7 +245,8 @@ async function loadRecentLog() {
   const data = await res.json();
   logStream.textContent = "";
   logsRendered = 0;
-  data.records.forEach(appendLog);
+  const events = Array.isArray(data.events) && data.events.length > 0 ? data.events : data.records;
+  events.forEach((event) => renderLiveEvent(event, { hydrate: true }));
 }
 
 async function loadStatus() {
@@ -211,7 +276,15 @@ async function loadStatus() {
 
 async function loadScenarios() {
   const res = await fetch(apiUrl("/api/demo/scenarios"));
+  if (!res.ok) {
+    appendTimeline(`failed to load scenarios: HTTP ${res.status}`);
+    return;
+  }
   const data = await res.json();
+  if (!Array.isArray(data.scenarios) || data.scenarios.length === 0) {
+    appendTimeline("no scenarios returned; keeping built-in scenario list");
+    return;
+  }
   scenarioSelect.textContent = "";
   data.scenarios.forEach((scenario) => {
     const option = document.createElement("option");
@@ -224,21 +297,31 @@ async function loadScenarios() {
 
 async function loadSelectedScenario() {
   // Loading a scenario regenerates WAL/snapshot data on the backend.
-  const scenarioId = scenarioSelect.value;
-  resetDemoView("loading scenario...");
-  const res = await fetch(apiUrl("/api/demo/scenario"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ scenario_id: scenarioId, seed: 42 }),
+  await withBusyButton(btnLoadScenario, "Loading...", async () => {
+    const scenarioId = scenarioSelect.value;
+    resetDemoView("loading scenario...");
+    scenarioExpected.textContent = "Loading selected scenario...";
+    try {
+      const res = await fetch(apiUrl("/api/demo/scenario"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenario_id: scenarioId, seed: 42 }),
+      });
+      const data = await readJsonOrThrow(res, "load scenario");
+      renderScenario(data);
+      metricInterval.textContent = `${data.checkpoint_interval_min}m`;
+      metricLsn.textContent = String(data.current_lsn || 0);
+      await loadStatus();
+      await loadRecentLog();
+      timeline.textContent = "";
+      appendTimeline(`scenario loaded: ${data.scenario_title}`);
+      appendTimeline(data.scenario_expected);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendTimeline(message);
+      scenarioExpected.textContent = message;
+    }
   });
-  const data = await res.json();
-  renderScenario(data);
-  metricInterval.textContent = `${data.checkpoint_interval_min}m`;
-  metricLsn.textContent = String(data.current_lsn || 0);
-  await loadStatus();
-  timeline.textContent = "";
-  appendTimeline(`scenario loaded: ${data.scenario_title}`);
-  appendTimeline(data.scenario_expected);
 }
 
 btnConfig.onclick = async () => {
@@ -291,19 +374,25 @@ async function recoverInterrupted() {
 
 async function loadScenarioById(scenarioId) {
   resetDemoView(`loading ${scenarioId}...`);
-  const res = await fetch(apiUrl("/api/demo/scenario"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ scenario_id: scenarioId, seed: 42 }),
-  });
-  const data = await res.json();
-  renderScenario(data);
-  metricInterval.textContent = `${data.checkpoint_interval_min}m`;
-  await loadStatus();
-  await loadRecentLog();
-  timeline.textContent = "";
-  appendTimeline(`scenario loaded: ${data.scenario_title}`);
-  appendTimeline(data.scenario_expected);
+  try {
+    const res = await fetch(apiUrl("/api/demo/scenario"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scenario_id: scenarioId, seed: 42 }),
+    });
+    const data = await readJsonOrThrow(res, "load scenario");
+    renderScenario(data);
+    metricInterval.textContent = `${data.checkpoint_interval_min}m`;
+    await loadStatus();
+    await loadRecentLog();
+    timeline.textContent = "";
+    appendTimeline(`scenario loaded: ${data.scenario_title}`);
+    appendTimeline(data.scenario_expected);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendTimeline(message);
+    scenarioExpected.textContent = message;
+  }
 }
 
 btnLoadScenario.onclick = loadSelectedScenario;
@@ -327,51 +416,16 @@ if (btnRecoverInterrupt) {
 }
 
 on("node_status", (event) => updateNodeCard(event.node, event.status, event.txn, event.lsn));
-on("log_entry", appendLog);
-on("crash", (event) => {
-  startStopwatch();
-  const elapsed = Number(event.run_elapsed_seconds ?? 0);
-  appendTimeline(`t=${elapsed.toFixed(3)}s crash injected on Node ${event.node}`);
-});
-on("recovery_pass", (event) => {
-  appendPhaseTimeline(event);
-});
-on("checkpoint_failure", (event) => {
-  checkpointBanner.textContent = event.message;
-  checkpointBanner.dataset.mode = "checkpoint-failure";
-  checkpointBanner.classList.remove("hidden");
-  appendTimeline(event.message);
-});
-on("recovery_interrupted", (event) => {
-  checkpointBanner.textContent = event.message;
-  checkpointBanner.dataset.mode = "recovery-interrupted";
-  checkpointBanner.classList.remove("hidden");
-  recoveryState.textContent = "interrupted";
-  appendTimeline(event.message);
-});
-on("recovery_record", (event) => {
-  appendRecoveryLog(event);
-});
-on("in_doubt_txn", (event) => {
-  inDoubt += 1;
-  metricIndoubt.textContent = String(inDoubt);
-  appendInDoubtLog(event);
-  appendTimeline(event.message);
-});
-on("coordinator_query", (event) => {
-  appendCoordinatorLog(event);
-  appendTimeline(event.message);
-});
-on("coordinator_decision", (event) => {
-  appendCoordinatorLog(event);
-  appendTimeline(event.message);
-});
-on("rto_complete", (event) => {
-  // Final recovery event closes the stopwatch and marks the node consistent.
-  stopStopwatch(event.rto_seconds);
-  recoveryState.textContent = "consistent";
-  appendTimeline(`consistent; RTO=${event.rto_seconds.toFixed(6)}s`);
-});
+on("log_entry", renderLiveEvent);
+on("crash", renderLiveEvent);
+on("recovery_pass", renderLiveEvent);
+on("checkpoint_failure", renderLiveEvent);
+on("recovery_interrupted", renderLiveEvent);
+on("recovery_record", renderLiveEvent);
+on("in_doubt_txn", renderLiveEvent);
+on("coordinator_query", renderLiveEvent);
+on("coordinator_decision", renderLiveEvent);
+on("rto_complete", renderLiveEvent);
 
 connect();
 await loadScenarios();
