@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Mô hình chi phí lý thuyết để so sánh xu hướng RTO theo checkpoint interval."""
+
 
 def estimate_recovery_cost(
     interval_min: int,
@@ -12,6 +14,10 @@ def estimate_recovery_cost(
     avg_record_bytes: int = 200,
     page_size: int = 4096,
     in_doubt_txns: int = 0,
+    io_latency_s: float = 0.010,
+    cpu_unit_s: float = 0.00001,
+    message_latency_s: float = 0.002,
+    network_byte_s: float = 0.00000001,
 ) -> dict[str, float]:
     """
     Ước lượng chi phí recovery dựa trên mô hình chi phí phân tán.
@@ -126,6 +132,19 @@ def estimate_recovery_cost(
     # Tổng chi phí recovery lý thuyết.
     total = io_cost + cpu_cost + comm_cost
 
+    # Quy đổi workload ước lượng sang thời gian lý thuyết.
+    #
+    # Các hệ số *_s khác với C_io/C_cpu/C_msg/C_tr:
+    # - C_* dùng để tạo cost unit cho biểu đồ breakdown.
+    # - *_s dùng để ước lượng số giây cho theory_rto_s.
+    #
+    # Nhờ vậy theory_rto_s phản ánh đủ 3 nguồn trễ:
+    # I/O scan WAL, CPU phân tích log, và communication khi hỏi coordinator.
+    io_time_s = num_io * io_latency_s
+    cpu_time_s = num_cpu * cpu_unit_s
+    comm_time_s = num_msg * message_latency_s + num_bytes * network_byte_s
+    theory_rto_s = io_time_s + cpu_time_s + comm_time_s
+
     # Trả về breakdown chi phí.
     #
     # io:
@@ -141,8 +160,10 @@ def estimate_recovery_cost(
     #   Tổng chi phí lý thuyết.
     #
     # theory_rto_s:
-    #   RTO lý thuyết tính bằng giây.
-    #   Ở đây giả định mỗi I/O mất khoảng 0.010 giây.
+    #   RTO lý thuyết tính bằng giây từ I/O + CPU + communication time.
+    #
+    # io_time_s / cpu_time_s / comm_time_s:
+    #   Breakdown thời gian lý thuyết, dùng để giải thích theory_rto_s.
     #
     # log_bytes:
     #   Số byte WAL ước lượng phải scan.
@@ -154,7 +175,10 @@ def estimate_recovery_cost(
         "cpu": cpu_cost,
         "comm": comm_cost,
         "total": total,
-        "theory_rto_s": num_io * 0.010,
+        "theory_rto_s": theory_rto_s,
+        "io_time_s": io_time_s,
+        "cpu_time_s": cpu_time_s,
+        "comm_time_s": comm_time_s,
         "log_bytes": log_bytes,
         "messages": float(num_msg),
     }

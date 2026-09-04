@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""API điều khiển benchmark RTO và đọc kết quả cho màn hình /benchmark."""
+
 import asyncio
 import csv
 import json
@@ -19,6 +21,8 @@ router = APIRouter(prefix="/api/benchmark", tags=["benchmark"])
 
 
 class BenchmarkRunConfig(BaseModel):
+    """Cấu hình benchmark do UI gửi lên."""
+
     intervals: list[int] = Field(default_factory=lambda: [1, 2, 5, 10, 20, 30])
     runs: int = Field(default=10, ge=1)
     seed: int = 42
@@ -31,7 +35,7 @@ class BenchmarkRunConfig(BaseModel):
 
 
 async def _run_benchmark_background(config: BenchmarkRunConfig) -> None:
-    """Run the benchmark matrix outside the request/response path."""
+    """Chạy ma trận benchmark ở background để request HTTP trả về ngay."""
     results_dir = ROOT / "results"
     work_dir = ROOT / "data" / "api_benchmark_runs"
     full_scale_dir = ROOT / "data" / "full_scale"
@@ -45,8 +49,7 @@ async def _run_benchmark_background(config: BenchmarkRunConfig) -> None:
             await asyncio.to_thread(_clear_benchmark_outputs, raw_dir, results_dir / "summary.csv")
         for interval in config.intervals:
             for run in range(1, config.runs + 1):
-                # Keep seeds deterministic while ensuring each cell/run uses a
-                # distinct workload.
+                # Seed có quy luật để kết quả tái lập nhưng mỗi cell/run vẫn khác dữ liệu.
                 run_seed = config.seed + interval * 10_000 + run
                 if config.dataset_mode == "full_scale":
                     result = await asyncio.to_thread(
@@ -89,6 +92,7 @@ async def _run_benchmark_background(config: BenchmarkRunConfig) -> None:
 
 @router.post("/run")
 async def run_benchmark(config: BenchmarkRunConfig, background_tasks: BackgroundTasks) -> dict:
+    """Khởi động benchmark nếu chưa có job nào đang chạy."""
     if benchmark_state.running:
         raise HTTPException(status_code=409, detail="benchmark already running")
     benchmark_state.running = True
@@ -105,6 +109,7 @@ async def run_benchmark(config: BenchmarkRunConfig, background_tasks: Background
 
 @router.get("/status")
 def benchmark_status() -> dict:
+    """Trả trạng thái job để UI polling/hiển thị tiến độ."""
     return {
         "running": benchmark_state.running,
         "started_at": benchmark_state.started_at,
@@ -115,7 +120,7 @@ def benchmark_status() -> dict:
 
 @router.get("/spec")
 def benchmark_spec() -> dict:
-    """Expose the default matrix and full-scale dataset availability to UI."""
+    """Trả cấu hình benchmark mặc định và tình trạng dataset full-scale."""
     full_scale_dir = ROOT / "data" / "full_scale"
     log_path = full_scale_dir / "transaction_log.bin"
     snapshot_path = full_scale_dir / "db_snapshot.bin"
@@ -132,7 +137,7 @@ def benchmark_spec() -> dict:
 
 @router.get("/results")
 def benchmark_results() -> list[dict]:
-    """Read the aggregated summary CSV as JSON rows."""
+    """Đọc summary.csv và trả thành JSON cho chart/table."""
     path = ROOT / "results" / "summary.csv"
     if not path.exists():
         return []
@@ -142,7 +147,7 @@ def benchmark_results() -> list[dict]:
 
 @router.get("/raw/{interval}")
 def raw_results(interval: int) -> list[dict]:
-    """Return raw per-run JSON rows for one checkpoint interval."""
+    """Trả raw JSON của từng run cho một checkpoint interval."""
     raw_dir = ROOT / "results" / "raw"
     rows = []
     for path in sorted(raw_dir.glob(f"rto_interval_{interval}min_run_*.json")):
@@ -152,7 +157,7 @@ def raw_results(interval: int) -> list[dict]:
 
 
 def _clear_benchmark_outputs(raw_dir: Path, summary_path: Path) -> None:
-    """Remove previous benchmark artifacts before a clean run."""
+    """Xóa kết quả cũ khi người dùng muốn chạy benchmark sạch."""
     raw_dir.mkdir(parents=True, exist_ok=True)
     for path in raw_dir.glob("rto_interval_*min_run_*.json"):
         path.unlink()

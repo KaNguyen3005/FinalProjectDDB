@@ -1,3 +1,4 @@
+// Logic cho trang WAL Log Inspector: phân trang, lọc node và render record.
 const nodeFilter = document.getElementById("node-filter");
 const btnPrev = document.getElementById("btn-prev");
 const btnNext = document.getElementById("btn-next");
@@ -10,12 +11,12 @@ let offset = 0;
 const limit = 50;
 
 function cell(value) {
-  // Render missing page_id values from non-UPDATE records as a dash.
+  // Record không phải UPDATE không có page_id, hiển thị "-" cho dễ đọc.
   return value === null || value === undefined ? "-" : value;
 }
 
 async function loadRecords() {
-  // Fetch one paged slice of WAL records; filtering happens on the API side.
+  // Lấy một trang WAL record; API xử lý offset/limit và filter node.
   const params = new URLSearchParams({ offset, limit });
   if (nodeFilter.value) params.set("node", nodeFilter.value);
   const res = await fetch(`/api/logs/records?${params}`);

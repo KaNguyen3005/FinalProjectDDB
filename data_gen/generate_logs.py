@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Sinh WAL/snapshot cho custom config và benchmark.
+
+Generator này tạo checkpoint định kỳ theo checkpoint_every, sau đó ghi nhiều
+transaction có START/UPDATE và kết thúc bằng COMMIT, ABORT hoặc PREPARE/READY.
+Một phần update được flush vào snapshot để recovery có tình huống cần REDO/UNDO.
+"""
+
 import argparse
 import random
 import sys

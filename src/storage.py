@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Snapshot storage tối giản cho simulator.
+
+Mỗi page được biểu diễn bằng một số nguyên 64-bit. Thiết kế này không mô phỏng
+database page thật, nhưng đủ để minh họa REDO ghi after_image và UNDO ghi
+before_image trong recovery.
+"""
+
 import random
 import struct
 from pathlib import Path
@@ -9,7 +16,7 @@ PAGE_STRUCT = struct.Struct("<q")
 
 
 def create_snapshot(path: str | Path, pages: int, *, seed: int = 42) -> None:
-    """Create a deterministic binary snapshot used as the simulated database."""
+    """Tạo snapshot có thể tái lập bằng seed để benchmark/test ổn định."""
     rng = random.Random(seed)
     snapshot_path = Path(path)
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
@@ -19,7 +26,7 @@ def create_snapshot(path: str | Path, pages: int, *, seed: int = 42) -> None:
 
 
 def read_page(path: str | Path, page_id: int) -> int:
-    """Read one simulated page by seeking to its fixed-width slot."""
+    """Đọc một page bằng cách seek tới offset page_id * 8."""
     with Path(path).open("rb") as fh:
         fh.seek(page_id * PAGE_STRUCT.size)
         data = fh.read(PAGE_STRUCT.size)
@@ -29,14 +36,14 @@ def read_page(path: str | Path, page_id: int) -> int:
 
 
 def write_page(path: str | Path, page_id: int, value: int) -> None:
-    """Overwrite one page in place; recovery uses this for REDO and UNDO."""
+    """Ghi đè page tại chỗ; recovery dùng cho cả REDO và UNDO."""
     with Path(path).open("r+b") as fh:
         fh.seek(page_id * PAGE_STRUCT.size)
         fh.write(PAGE_STRUCT.pack(value))
 
 
 def page_count(path: str | Path) -> int:
-    """Return the number of fixed-width pages in a snapshot file."""
+    """Tính số page từ kích thước file để generator chọn page hợp lệ."""
     size = Path(path).stat().st_size
     if size % PAGE_STRUCT.size != 0:
         raise ValueError(f"invalid snapshot size: {size}")

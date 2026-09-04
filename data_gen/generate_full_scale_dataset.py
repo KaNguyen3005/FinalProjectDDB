@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Sinh dataset lớn để benchmark scan WAL ở quy mô gần với yêu cầu báo cáo."""
+
 import argparse
 import sys
 from pathlib import Path
@@ -16,7 +18,7 @@ DEFAULT_LOG_BYTES = 1024 * 1024 * 1024
 
 
 def align_up(value: int, multiple: int) -> int:
-    """Round a byte size up to the next multiple."""
+    """Làm tròn kích thước byte lên bội số record để WAL không bị lệch chunk."""
     if multiple <= 0:
         raise ValueError("multiple must be positive")
     remainder = value % multiple
@@ -24,26 +26,26 @@ def align_up(value: int, multiple: int) -> int:
 
 
 def create_large_snapshot(path: str | Path, size_bytes: int = DEFAULT_SNAPSHOT_BYTES) -> None:
-    """Create a sparse-like snapshot file with the requested byte size."""
+    """Tạo snapshot lớn bằng truncate, đủ cho benchmark đọc kích thước file."""
     snapshot_path = Path(path)
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-    # A truncated file is enough here because the storage layer treats the snapshot as raw pages.
+    # Snapshot full-scale chỉ cần đúng kích thước; nội dung page không quan trọng.
     with snapshot_path.open("wb") as fh:
         fh.truncate(size_bytes)
 
 
 def build_log_pattern() -> bytes:
-    """Build a repeatable WAL pattern containing commit, abort, and 2PC cases."""
+    """Tạo mẫu WAL lặp lại có đủ commit, abort và 2PC để benchmark đa dạng."""
     records: list[bytes] = []
     lsn = 1
 
-    # Seed the large log with a valid checkpoint pair so recovery always has a safe base point.
+    # Ghi checkpoint hợp lệ ở đầu để recovery luôn có mốc redo an toàn.
     records.append(LogRecord.create(RecordType.BEGIN_CHECKPOINT, lsn).pack())
     lsn += 1
     records.append(LogRecord.create(RecordType.END_CHECKPOINT, lsn, redo_lsn=1).pack())
     lsn += 1
 
-    # Repeat a compact transaction pattern that includes commits, aborts, and 2PC records.
+    # Lặp mẫu transaction nhỏ để tạo WAL lớn nhưng vẫn hợp lệ về mặt record.
     for txn_id in range(1, 257):
         page_id = txn_id % 1024
         before = txn_id * 10
@@ -77,14 +79,14 @@ def build_log_pattern() -> bytes:
 
 
 def create_large_wal(path: str | Path, size_bytes: int = DEFAULT_LOG_BYTES) -> None:
-    """Write a large WAL by repeating the valid record pattern."""
+    """Ghi WAL lớn bằng cách lặp lại pattern hợp lệ."""
     log_path = Path(path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     pattern = build_log_pattern()
     if not pattern:
         raise ValueError("log pattern is empty")
 
-    # Keep the WAL byte-aligned so iter_log_records() can read it back safely.
+    # Giữ file aligned theo LogRecord.SIZE để reader không gặp record cụt.
     size_bytes = align_up(size_bytes, LogRecord.SIZE)
     repeats = size_bytes // len(pattern)
     remainder = size_bytes % len(pattern)
@@ -93,12 +95,12 @@ def create_large_wal(path: str | Path, size_bytes: int = DEFAULT_LOG_BYTES) -> N
         for _ in range(repeats):
             fh.write(pattern)
         if remainder:
-            # Write a partial tail only after the aligned repeats are in place.
+            # Phần tail chỉ dùng đủ byte còn lại sau khi đã ghi các block aligned.
             fh.write(pattern[:remainder])
 
 
 def main() -> None:
-    """CLI entry point for generating the full-scale benchmark dataset."""
+    """Entry point CLI để sinh dataset full-scale."""
     parser = argparse.ArgumentParser(description="Generate a full-scale 1GB WAL and 500MB snapshot dataset.")
     parser.add_argument("--log-bytes", type=int, default=DEFAULT_LOG_BYTES)
     parser.add_argument("--snapshot-bytes", type=int, default=DEFAULT_SNAPSHOT_BYTES)

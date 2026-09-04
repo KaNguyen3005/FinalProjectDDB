@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""Runtime state dùng chung trong process FastAPI.
+
+Simulator chạy một process nên state in-memory đủ để điều phối demo, benchmark,
+background task và đường dẫn WAL/snapshot hiện tại.
+"""
+
 import asyncio
 import time
 from dataclasses import dataclass, field
@@ -11,11 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @dataclass
 class DemoState:
-    """Mutable runtime state shared by demo endpoints.
+    """Trạng thái mutable của màn hình demo.
 
-    The app is a single-process simulator, so an in-memory object is enough to
-    coordinate scenario selection, node status, generated data paths, and the
-    background log-stream task.
+    Lưu cả control-plane state (node status, scenario) và data-plane pointer
+    (log_path, snapshot_path, live_events) để REST/WebSocket dùng chung.
     """
 
     scenario_id: str = "fast_checkpoint_clean"
@@ -48,8 +53,7 @@ class DemoState:
 
 @dataclass
 class BenchmarkState:
-    """Mutable runtime state for the background benchmark job."""
-
+    """Trạng thái job benchmark đang chạy nền."""
     running: bool = False
     started_at: float | None = None
     completed_at: float | None = None

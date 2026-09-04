@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Cấu hình FastAPI app, static UI và WebSocket endpoint."""
+
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -14,8 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def create_app() -> FastAPI:
-    """Assemble API routers, WebSocket endpoint, and static UI pages."""
+    """Lắp router API, trang UI tĩnh và kênh WebSocket realtime."""
     app = FastAPI(title="RTO Disaster Recovery Benchmark")
+    # Mỗi router phụ trách một màn hình/chức năng chính của app.
     app.include_router(demo.router)
     app.include_router(benchmark.router)
     app.include_router(logs.router)
@@ -42,10 +45,11 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/events")
     async def websocket_events(websocket: WebSocket) -> None:
-        """Keep a client registered so routers can broadcast live events."""
+        """Giữ kết nối browser để các router broadcast event realtime."""
         await manager.connect(websocket)
         try:
             while True:
+                # Server không cần xử lý message từ client; receive để giữ socket sống.
                 await websocket.receive_text()
         except WebSocketDisconnect:
             manager.disconnect(websocket)

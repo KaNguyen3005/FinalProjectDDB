@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Process node giả lập ghi WAL liên tục cho các thử nghiệm crash."""
+
 import random
 import time
 from multiprocessing import Event, Process
@@ -9,6 +11,8 @@ from src.log.log_record import RecordType, WalWriter
 
 
 class SimulatedNode(Process):
+    """Một process nhỏ sinh transaction commit đều đặn vào WAL."""
+
     def __init__(self, node_id: str, log_path: str | Path, stop_event: Event, seed: int = 42) -> None:
         super().__init__()
         self.node_id = node_id
@@ -17,6 +21,7 @@ class SimulatedNode(Process):
         self.seed = seed
 
     def run(self) -> None:
+        # Mỗi vòng tạo một transaction START -> UPDATE -> COMMIT để WAL tăng dần.
         rng = random.Random(self.seed)
         writer = WalWriter(self.log_path, node_id=self.node_id)
         txn_id = 1

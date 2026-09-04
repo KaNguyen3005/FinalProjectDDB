@@ -1,5 +1,6 @@
 import { connect, on } from "./ws-client.js";
 
+// Logic cho dashboard benchmark: đọc summary, vẽ chart canvas và chạy benchmark nền.
 const statusEl = document.getElementById("benchmark-status");
 const progressBar = document.getElementById("benchmark-progress");
 const tableBody = document.getElementById("summary-body");
@@ -22,7 +23,7 @@ function format(value) {
 }
 
 function drawLineChart(canvas, rows) {
-  // Canvas chart is generated client-side from summary.csv API rows.
+  // Chart RTO được vẽ client-side từ summary.csv mà API trả về.
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#07090d";
@@ -68,7 +69,7 @@ function drawLineChart(canvas, rows) {
 }
 
 function drawBarChart(canvas, rows) {
-  // Stacked bars show how the theoretical cost model is composed.
+  // Bar chart thể hiện cost model gồm I/O, CPU và communication.
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#07090d";
@@ -120,7 +121,7 @@ function renderTable(rows) {
 }
 
 async function loadResults() {
-  // Refresh table, charts, and headline metrics from the latest summary.
+  // Refresh bảng, biểu đồ và metric headline từ kết quả mới nhất.
   const res = await fetch("/api/benchmark/results");
   const rows = await res.json();
   renderTable(rows);
@@ -133,7 +134,7 @@ async function loadResults() {
 }
 
 btnRun.onclick = async () => {
-  // The backend runs the matrix in a background task and reports progress.
+  // Backend chạy ma trận benchmark ở background rồi gửi progress qua WebSocket.
   progressBar.style.width = "0%";
   statusEl.textContent = "running full-scale matrix: 1GB WAL / 500MB snapshot";
   btnRun.disabled = true;
@@ -155,7 +156,7 @@ btnRun.onclick = async () => {
 };
 
 on("benchmark_progress", async (event) => {
-  // Progress events are emitted once per completed interval/run cell.
+  // Mỗi event tương ứng một cell interval/run đã chạy xong.
   const completed = event.completed_runs || event.run;
   progressBar.style.width = `${Math.min(100, (completed / event.total_runs) * 100)}%`;
   statusEl.textContent = `${completed}/${event.total_runs} interval ${event.interval}m run ${event.run}: ${event.rto.toFixed(4)}s`;

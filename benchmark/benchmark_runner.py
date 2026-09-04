@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""Chạy benchmark RTO cho các checkpoint interval.
+
+Module này sinh workload, chạy recovery, ghi raw JSON và tổng hợp summary CSV.
+Nó được dùng cả từ CLI lẫn API /benchmark.
+"""
+
 import argparse
 import json
 import sys
@@ -20,7 +26,7 @@ from src.recovery.recovery_manager import RecoveryManager
 
 @dataclass
 class BenchmarkRunResult:
-    """Serializable result for one benchmark run."""
+    """Kết quả một lần benchmark, có thể serialize thành JSON."""
 
     interval_min: int
     run: int
@@ -51,12 +57,13 @@ def run_single_benchmark(
     pages: int,
     work_dir: Path,
 ) -> BenchmarkRunResult:
-    """Generate a fresh workload, recover it, and capture measured RTO."""
+    """Sinh workload mới, chạy recovery thật và đo RTO."""
     run_dir = work_dir / f"interval_{interval_min}min_run_{run}"
     run_dir.mkdir(parents=True, exist_ok=True)
     log_path = run_dir / "transaction_log.bin"
     snapshot_path = run_dir / "db_snapshot.bin"
 
+    # Quy đổi interval phút thành số transaction giữa hai checkpoint.
     checkpoint_every = max(1, interval_min * 10)
     started_at = time.time()
     generate_logs(
@@ -98,7 +105,7 @@ def run_single_full_scale_benchmark(
     dataset_dir: Path,
     max_interval_min: int = 30,
 ) -> BenchmarkRunResult:
-    """Benchmark a scan window over a pre-generated full-scale dataset."""
+    """Benchmark bằng cách scan một cửa sổ WAL trên dataset full-scale có sẵn."""
     log_path = dataset_dir / "transaction_log.bin"
     snapshot_path = dataset_dir / "db_snapshot.bin"
     if not log_path.exists() or not snapshot_path.exists():
@@ -139,7 +146,7 @@ def run_single_full_scale_benchmark(
 
 
 def _aligned_scan_bytes(log_size: int, interval_min: int, max_interval_min: int) -> int:
-    """Scale a log scan window by interval and align it to WAL record size."""
+    """Tính kích thước cửa sổ scan theo interval và căn theo LogRecord.SIZE."""
     target = int(log_size * (interval_min / max_interval_min))
     target = max(LogRecord.SIZE, target)
     target -= target % LogRecord.SIZE
@@ -147,7 +154,7 @@ def _aligned_scan_bytes(log_size: int, interval_min: int, max_interval_min: int)
 
 
 def _scan_full_scale_window(log_path: Path, scan_bytes: int, *, seed: int) -> dict[str, int]:
-    """Scan the tail of a large WAL and estimate recovery work from records."""
+    """Scan tail WAL lớn và ước lượng số record cần REDO/UNDO."""
     committed: set[int] = set()
     aborted: set[int] = set()
     prepared: set[int] = set()
@@ -161,7 +168,7 @@ def _scan_full_scale_window(log_path: Path, scan_bytes: int, *, seed: int) -> di
         fh.seek(start_offset)
         remaining = scan_bytes
         while remaining >= LogRecord.SIZE:
-            # Read exact record-sized chunks so unpacking stays aligned.
+            # Đọc đúng kích thước record để LogRecord.unpack không bị lệch.
             chunk = fh.read(LogRecord.SIZE)
             if len(chunk) != LogRecord.SIZE:
                 break
@@ -198,7 +205,7 @@ def _scan_full_scale_window(log_path: Path, scan_bytes: int, *, seed: int) -> di
 
 
 def write_raw_result(result: BenchmarkRunResult, raw_dir: Path) -> Path:
-    """Write one run result as JSON for later statistical aggregation."""
+    """Ghi raw result để bước thống kê gom lại sau."""
     raw_dir.mkdir(parents=True, exist_ok=True)
     path = raw_dir / f"rto_interval_{result.interval_min}min_run_{result.run}.json"
     with path.open("w", encoding="utf-8") as fh:
@@ -222,7 +229,7 @@ def run_benchmark_matrix(
     full_scale_dir: Path = Path("data/full_scale"),
     full_scale_max_interval_min: int = 30,
 ) -> list[dict[str, float]]:
-    """Run every checkpoint interval and aggregate raw results into CSV."""
+    """Chạy toàn bộ ma trận interval x run rồi tạo summary CSV."""
     raw_dir = results_dir / "raw"
     summary_path = results_dir / "summary.csv"
     if clear_existing:
@@ -235,7 +242,7 @@ def run_benchmark_matrix(
     completed = 0
     for interval in intervals:
         for run in range(1, runs + 1):
-            # Deterministic but unique seed per matrix cell/run.
+            # Seed tái lập nhưng khác nhau cho từng cell/run.
             run_seed = seed + interval * 10_000 + run
             if dataset_mode == "full_scale":
                 result = run_single_full_scale_benchmark(
@@ -267,7 +274,7 @@ def run_benchmark_matrix(
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse CLI options for local benchmark execution."""
+    """Đọc tham số CLI cho benchmark local."""
     parser = argparse.ArgumentParser(description="Run RTO benchmark matrix.")
     parser.add_argument("--intervals", nargs="+", type=int, default=[1, 2, 5, 10, 20, 30])
     parser.add_argument("--runs", type=int, default=10)
@@ -285,7 +292,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """CLI entry point."""
+    """Entry point CLI."""
     args = parse_args()
     run_benchmark_matrix(
         intervals=args.intervals,

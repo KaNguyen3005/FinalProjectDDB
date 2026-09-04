@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""CLI smoke test cho core recovery engine.
+
+File này cho phép chạy nhanh luồng sinh dữ liệu -> giả lập crash -> recover mà
+không cần mở web UI. Nó hữu ích để debug thuật toán recovery độc lập với API.
+"""
+
 import argparse
 import sys
 from pathlib import Path
@@ -23,11 +29,12 @@ def crash_and_recover(
     data_dir: Path,
     verbose_events: bool,
 ) -> None:
-    """CLI smoke path: generate data, run recovery, and print RTO metrics."""
+    """Sinh workload, chạy recovery và in các metric chính ra terminal."""
     data_dir.mkdir(parents=True, exist_ok=True)
     log_path = data_dir / "transaction_log.bin"
     snapshot_path = data_dir / "db_snapshot.bin"
 
+    # Trong simulator, interval phút được quy đổi thành số transaction/checkpoint.
     checkpoint_every = max(1, interval * 10)
     generate_logs(
         log_path,
@@ -43,7 +50,7 @@ def crash_and_recover(
     timer.start()
 
     def emit(event: dict) -> None:
-        """Optional event sink for debugging recovery pass output."""
+        """In event recovery khi cần quan sát từng pass trong terminal."""
         if verbose_events:
             print(event)
 
@@ -63,7 +70,7 @@ def crash_and_recover(
 
 
 def main() -> None:
-    """Parse CLI options for the core simulator."""
+    """Đọc tham số CLI và chọn luồng chạy phù hợp."""
     parser = argparse.ArgumentParser(description="RTO disaster recovery simulator.")
     parser.add_argument("--crash-and-recover", action="store_true")
     parser.add_argument("--interval", type=int, default=5, help="Checkpoint interval in benchmark minutes.")

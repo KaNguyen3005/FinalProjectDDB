@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""API điều phối màn hình /demo.
+
+Router này là lớp nối giữa UI và core engine: sinh WAL/snapshot, stream live log,
+giả lập crash, chạy recovery và broadcast event để browser hiển thị realtime.
+"""
+
 import asyncio
 import time
 from uuid import uuid4
@@ -22,6 +28,7 @@ from src.storage import page_count, read_page, write_page
 
 router = APIRouter(prefix="/api/demo", tags=["demo"])
 LIVE_EVENT_LIMIT = 1_000
+# Chỉ các event thuộc bề mặt Live Log/Timeline mới được lưu lại để hydrate UI.
 LIVE_EVENT_TYPES = {
     "log_entry",
     "crash",
@@ -37,6 +44,8 @@ LIVE_EVENT_TYPES = {
 
 
 class DemoConfig(BaseModel):
+    """Thông số custom workload khi người dùng bấm Apply Config."""
+
     checkpoint_interval_min: int = Field(default=5, ge=1)
     transactions: int = Field(default=200, ge=1)
     pages: int = Field(default=100, ge=1)
@@ -44,21 +53,27 @@ class DemoConfig(BaseModel):
 
 
 class DemoScenarioRequest(BaseModel):
+    """Request load một scenario dựng sẵn."""
+
     scenario_id: str
     seed: int = 42
 
 
 class RecoveryInterruptRequest(BaseModel):
+    """Số event recovery cần phát trước khi giả lập crash lần hai."""
+
     interrupt_after_events: int = Field(default=4, ge=1)
 
 
 class CrashRequest(BaseModel):
+    """Node đích mà UI muốn crash."""
+
     target_node: Literal["A", "B", "C"] = "A"
 
 
 @router.get("/status")
 def status() -> dict:
-    """Return the current demo control-plane state."""
+    """Trả trạng thái điều khiển hiện tại để UI hydrate khi load trang."""
     return {
         "scenario_id": demo_state.scenario_id,
         "scenario_title": demo_state.scenario_title,
@@ -96,11 +111,18 @@ def scenarios() -> dict:
 
 @router.post("/scenario")
 async def load_scenario(request: DemoScenarioRequest) -> dict:
-    """Generate WAL/snapshot files for one curated scenario."""
+    """Sinh WAL/snapshot theo scenario dựng sẵn, ví dụ 2PC hoặc checkpoint failure."""
+    # Kiểm tra scenario_id có nằm trong danh sách scenario mà backend hỗ trợ không.
+    # Nếu không hợp lệ, trả 404 để frontend hiển thị lỗi rõ ràng.
     if request.scenario_id not in {scenario["id"] for scenario in list_scenarios()}:
         raise HTTPException(status_code=404, detail=f"unknown demo scenario: {request.scenario_id}")
+    # Mỗi lần load scenario sẽ tạo một run mới với log_path/snapshot_path riêng.
+    # Điều này tránh ghi đè WAL/snapshot của lần demo trước.
     _activate_new_run("scenario")
     try:
+        # Sinh WAL và snapshot theo kịch bản dựng sẵn.
+        # Ví dụ: clean recovery, heavy redo, global undo, 2PC in-doubt,
+        # hoặc checkpoint failure.
         scenario = generate_demo_scenario(
             request.scenario_id,
             demo_state.log_path,
@@ -108,7 +130,10 @@ async def load_scenario(request: DemoScenarioRequest) -> dict:
             seed=request.seed,
         )
     except ValueError as exc:
+        # Nếu generator báo scenario không tồn tại, chuyển thành HTTP 404.
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    # Reset state hiển thị theo metadata của scenario vừa sinh.
+    # coordinator_decisions được dùng cho scenario 2PC để recovery hỏi coordinator.
     _reset_demo_state(
         scenario_id=scenario.id,
         title=scenario.title,
@@ -117,21 +142,28 @@ async def load_scenario(request: DemoScenarioRequest) -> dict:
         checkpoint_interval_min=scenario.checkpoint_interval_min,
         coordinator_decisions={int(txn_id): decision for txn_id, decision in (scenario.coordinator_decisions or {}).items()},
     )
+    # Xóa các trạng thái lỗi/interrupted còn sót lại từ run trước.
     demo_state.checkpoint_failure_detected = False
     demo_state.checkpoint_failure_message = ""
     demo_state.recovery_interrupted = False
     demo_state.recovery_interrupted_message = ""
+    # Mặc định node A là node bị crash nếu người dùng không chọn node khác.
     demo_state.crashed_node = "A"
+    # Đọc WAL vừa sinh để cập nhật current_txn/current_lsn cho UI.
     _refresh_current_position()
+    # Bắt đầu stream WAL của scenario ra Live Log.
+    # Scenario dựng sẵn chỉ replay WAL đã sinh, không append transaction mới.
     await _restart_log_stream()
+    # Broadcast trạng thái cluster để browser cập nhật node card.
     await manager.broadcast(node_status("A", "RUNNING", txn=demo_state.current_txn, lsn=demo_state.current_lsn))
     await manager.broadcast(node_status("COORDINATOR", "RUNNING"))
+    # Trả toàn bộ trạng thái demo hiện tại cho frontend hydrate UI.
     return status()
 
 
 @router.post("/config")
 async def configure(config: DemoConfig) -> dict:
-    """Generate an ad-hoc workload from user-selected demo settings."""
+    """Sinh workload custom từ checkpoint interval và bắt đầu live append."""
     _activate_new_run("custom")
     _reset_demo_state(
         scenario_id="custom",
@@ -146,6 +178,7 @@ async def configure(config: DemoConfig) -> dict:
     demo_state.recovery_interrupted = False
     demo_state.recovery_interrupted_message = ""
     demo_state.crashed_node = "A"
+    # Lần đầu tạo WAL có sẵn checkpoint theo interval; sau đó live stream append thêm.
     generate_logs(
         demo_state.log_path,
         demo_state.snapshot_path,
@@ -163,7 +196,7 @@ async def configure(config: DemoConfig) -> dict:
 
 @router.post("/crash")
 async def crash(request: CrashRequest | None = None) -> dict:
-    """Stop the log stream and mark the selected node as crashed."""
+    """Dừng live log và đánh dấu node bị crash."""
     if not demo_state.log_path.exists() or not demo_state.snapshot_path.exists():
         await configure(DemoConfig(checkpoint_interval_min=demo_state.checkpoint_interval_min))
 
@@ -194,7 +227,7 @@ async def recover_interrupted(request: RecoveryInterruptRequest | None = None) -
 
 
 async def _run_recovery(*, interrupt_after_events: int | None = None) -> dict:
-    """Collect recovery events synchronously, then replay them to the UI."""
+    """Chạy recovery, thu event rồi replay ra WebSocket theo nhịp dễ quan sát."""
     if not demo_state.log_path.exists() or not demo_state.snapshot_path.exists():
         await configure(DemoConfig(checkpoint_interval_min=demo_state.checkpoint_interval_min))
 
@@ -210,7 +243,7 @@ async def _run_recovery(*, interrupt_after_events: int | None = None) -> dict:
         pass
 
     def collect(event: dict) -> None:
-        """Capture recovery events and optionally simulate a second crash."""
+        """Thu event từ RecoveryManager và có thể ngắt để demo crash khi recovery."""
         nonlocal recovery_event_count
         events.append(event)
         if event.get("type") in {
@@ -229,6 +262,7 @@ async def _run_recovery(*, interrupt_after_events: int | None = None) -> dict:
         cast(dict[int, str], demo_state.coordinator_decisions)
     )
     try:
+        # Recovery chạy đồng bộ trên WAL/snapshot hiện tại; event được collect trước.
         result = RecoveryManager().recover(
             demo_state.log_path,
             demo_state.snapshot_path,
@@ -236,6 +270,7 @@ async def _run_recovery(*, interrupt_after_events: int | None = None) -> dict:
             coordinator.resolve,
         )
     except RecoveryInterrupted:
+        # Khi demo interrupted recovery, vẫn replay các event đã xảy ra trước khi báo crash.
         demo_state.node_statuses[target_node] = "CRASHED"
         demo_state.recovery_interrupted = True
         demo_state.recovery_interrupted_message = (
@@ -304,7 +339,7 @@ async def _run_recovery(*, interrupt_after_events: int | None = None) -> dict:
 
 @router.get("/recent-log")
 def recent_log(limit: int = 25) -> dict:
-    """Return live log history for initial UI hydration."""
+    """Trả lịch sử live event để UI refresh/reconnect không mất recovery log."""
     live_tail = demo_state.live_events[-limit:]
     records = list(iter_log_records(demo_state.log_path)) if demo_state.log_path.exists() else []
     tail = records[-limit:]
@@ -334,7 +369,7 @@ def _reset_demo_state(
     checkpoint_interval_min: int,
     coordinator_decisions: dict[int, str],
 ) -> None:
-    """Reset state fields that should change whenever a new workload is loaded."""
+    """Reset state mỗi khi Apply Config hoặc Load Scenario tạo run mới."""
     _cancel_existing_stream()
     demo_state.scenario_id = scenario_id
     demo_state.scenario_title = title
@@ -355,7 +390,7 @@ def _reset_demo_state(
 
 
 def _activate_new_run(kind: str) -> None:
-    """Point the demo at a fresh WAL/snapshot pair without deleting prior runs."""
+    """Tạo đường dẫn WAL/snapshot mới để các lần Apply Config không đè nhau."""
     run_id = f"{int(time.time() * 1000)}-{kind}-{uuid4().hex[:8]}"
     run_dir = ROOT / "data" / "api_demo" / "runs" / run_id
     demo_state.run_id = run_id
@@ -364,7 +399,7 @@ def _activate_new_run(kind: str) -> None:
 
 
 async def _restart_log_stream(*, append_live_workload: bool = False) -> None:
-    """Start a new background task that replays WAL records to WebSocket."""
+    """Khởi động background task stream WAL ra UI."""
     _cancel_existing_stream()
     demo_state.log_stream_generation += 1
     generation = demo_state.log_stream_generation
@@ -379,13 +414,13 @@ async def _restart_log_stream(*, append_live_workload: bool = False) -> None:
 
 
 async def _stop_log_stream() -> None:
-    """Cancel the current WAL replay task and notify connected clients."""
+    """Hủy stream hiện tại khi crash/recover hoặc khi load run mới."""
     _cancel_existing_stream()
     await manager.broadcast(demo_log_stream_state(False, generation=demo_state.log_stream_generation))
 
 
 def _cancel_existing_stream() -> None:
-    """Cancel the old replay task; the generation guard handles late exits."""
+    """Cancel task cũ; generation guard ngăn event cũ lọt vào run mới."""
     task = demo_state.log_stream_task
     if task and not task.done():
         task.cancel()
@@ -398,10 +433,11 @@ async def _stream_log_records(
     start_lsn: int = 1,
     append_live_workload: bool = False,
 ) -> None:
-    """Stream WAL records, optionally appending new custom workload records."""
+    """Stream WAL; riêng custom mode sẽ append transaction mới để log chạy liên tục."""
     import asyncio
 
     try:
+        # Phần đầu stream lại vùng WAL mà recovery sẽ dùng, tránh lệch LSN với recovery log.
         records = [record for record in iter_log_records(demo_state.log_path) if record.lsn >= start_lsn]
         for record in records:
             if generation != demo_state.log_stream_generation or demo_state.crashed_at is not None:
@@ -424,6 +460,7 @@ async def _stream_log_records(
             await asyncio.sleep(0.04)
         if not append_live_workload:
             return
+        # Custom mode tiếp tục sinh transaction mới thật vào WAL thay vì lặp record cũ.
         while generation == demo_state.log_stream_generation and demo_state.crashed_at is None:
             for record in _append_live_transaction():
                 if generation != demo_state.log_stream_generation or demo_state.crashed_at is not None:
@@ -455,7 +492,7 @@ async def _stream_log_records(
 
 
 def _refresh_current_position() -> None:
-    """Update current LSN/transaction counters from the generated WAL tail."""
+    """Cập nhật current_txn/current_lsn từ tail WAL sau khi sinh dữ liệu."""
     records = list(iter_log_records(demo_state.log_path))
     if records:
         demo_state.current_txn = max(record.txn_id for record in records)
@@ -470,7 +507,7 @@ def _refresh_current_position() -> None:
 
 
 def _recovery_stream_start_lsn() -> int:
-    """Align the visible WAL stream with the checkpoint range recovery uses."""
+    """Tìm redo_lsn từ checkpoint mới nhất để Live Log khớp Recovery Log."""
     if not demo_state.log_path.exists():
         return 1
     records = list(iter_log_records(demo_state.log_path))
@@ -481,7 +518,7 @@ def _recovery_stream_start_lsn() -> int:
 
 
 def _append_live_transaction() -> list:
-    """Append one new custom transaction so live log can progress without repeats."""
+    """Append transaction mới vào WAL để custom live log chạy tiếp mà không duplicate."""
     pages = max(1, page_count(demo_state.snapshot_path))
     txn_id = demo_state.current_txn + 1
     writer = WalWriter(demo_state.log_path)
@@ -501,6 +538,7 @@ def _append_live_transaction() -> list:
             )
         )
         write_page(demo_state.snapshot_path, page_id, after)
+    # Outcome deterministic giúp demo dễ lặp lại: đa số commit, một phần abort/2PC.
     decision = txn_id % 10
     if decision < 7:
         records.append(writer.append(RecordType.COMMIT, txn_id=txn_id))
@@ -509,6 +547,7 @@ def _append_live_transaction() -> list:
     else:
         records.append(writer.append(RecordType.PREPARE, txn_id=txn_id))
         records.append(writer.append(RecordType.READY, txn_id=txn_id))
+    # Interval trên UI được quy đổi sang số transaction giữa hai checkpoint.
     checkpoint_every = max(1, demo_state.checkpoint_interval_min * 10)
     if txn_id % checkpoint_every == 0:
         begin_lsn, end_lsn = CheckpointManager(writer).write_checkpoint()
@@ -529,7 +568,7 @@ async def _demo_event_pause() -> None:
 
 
 async def _publish_live_event(event: dict) -> None:
-    """Persist and broadcast events that make up the live log surface."""
+    """Lưu event vào history rồi broadcast để UI realtime và hydrate đều đồng bộ."""
     if event.get("type") in LIVE_EVENT_TYPES:
         demo_state.live_events.append(event)
         if len(demo_state.live_events) > LIVE_EVENT_LIMIT:

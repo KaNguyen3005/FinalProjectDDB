@@ -17,6 +17,24 @@ def test_cost_model_grows_with_interval():
     assert long["theory_rto_s"] > short["theory_rto_s"]
 
 
+def test_cost_model_theory_rto_uses_io_cpu_and_communication():
+    cost = estimate_recovery_cost(5, 10.0, in_doubt_txns=3)
+
+    assert cost["theory_rto_s"] == (
+        cost["io_time_s"] + cost["cpu_time_s"] + cost["comm_time_s"]
+    )
+    assert cost["cpu_time_s"] > 0
+    assert cost["comm_time_s"] > 0
+
+
+def test_cost_model_in_doubt_transactions_increase_communication_time():
+    without_in_doubt = estimate_recovery_cost(5, 10.0, in_doubt_txns=0)
+    with_in_doubt = estimate_recovery_cost(5, 10.0, in_doubt_txns=5)
+
+    assert with_in_doubt["comm_time_s"] > without_in_doubt["comm_time_s"]
+    assert with_in_doubt["theory_rto_s"] > without_in_doubt["theory_rto_s"]
+
+
 def test_stats_analyzer_computes_summary():
     rows = summarize_results(
         [

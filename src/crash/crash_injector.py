@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+"""Helper giả lập crash bằng cách terminate process con."""
+
 from multiprocessing import Process
 
 
 class CrashInjector:
-    """Small helper for tests or demos that need to terminate a child process."""
+    """Dùng cho test/demo cần dừng đột ngột một process node."""
 
     def crash(self, process: Process) -> None:
-        """Terminate the process and wait briefly so no child is left running."""
+        """Terminate process và join ngắn để không để lại process con chạy nền."""
         if process.is_alive():
             process.terminate()
             process.join(timeout=5)

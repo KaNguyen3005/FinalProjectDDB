@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""CLI nhỏ để sinh riêng file snapshot mà không sinh WAL."""
+
 import argparse
 import sys
 from pathlib import Path
@@ -12,7 +14,7 @@ from src.storage import create_snapshot
 
 
 def main() -> None:
-    """CLI helper for generating only the snapshot file."""
+    """Đọc tham số CLI và gọi storage.create_snapshot."""
     parser = argparse.ArgumentParser(description="Generate a binary snapshot file.")
     parser.add_argument("--pages", type=int, default=10_000)
     parser.add_argument("--seed", type=int, default=42)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Coordinator giả lập cho recovery của transaction 2PC."""
+
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -10,15 +12,14 @@ CoordinatorDecision = Literal["COMMIT", "ABORT"]
 @dataclass
 class CoordinatorSimulator:
     """
-    Small 2PC coordinator simulator for demo recovery.
+    Bộ mô phỏng coordinator 2PC dùng trong demo recovery.
 
-    It represents the surviving coordinator log. When a recovering participant
-    finds an in-doubt PREPARE/READY transaction, it asks this simulator for the
-    final global decision.
+    Khi participant recovery gặp PREPARE/READY chưa có quyết định cuối, nó hỏi
+    coordinator này để biết transaction toàn cục COMMIT hay ABORT.
     """
 
     decisions: dict[int, CoordinatorDecision] = field(default_factory=dict)
 
     def resolve(self, txn_id: int) -> CoordinatorDecision | None:
-        """Return the final global 2PC decision if the coordinator knows it."""
+        """Trả về quyết định cuối nếu coordinator có log của transaction đó."""
         return self.decisions.get(txn_id)

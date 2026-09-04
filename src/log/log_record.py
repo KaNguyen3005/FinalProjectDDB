@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""Mô hình WAL nhị phân dùng chung cho sinh dữ liệu, recovery và UI.
+
+File này cố tình giữ record có kích thước cố định để LSN có thể tăng tuần tự
+và việc đọc log sau crash đơn giản, dễ kiểm chứng trong demo.
+"""
+
 import struct
 import time
 from dataclasses import dataclass
@@ -9,7 +15,7 @@ from typing import BinaryIO, Iterable
 
 
 class RecordType(IntEnum):
-    """WAL record categories understood by generation, recovery, and UI."""
+    """Các loại record mà toàn bộ simulator hiểu và hiển thị được."""
 
     START = 0
     UPDATE = 1
@@ -23,6 +29,8 @@ class RecordType(IntEnum):
 
 MAGIC = b"RTO1"
 VERSION = 1
+# Các sentinel này giúp record nhị phân vẫn có đủ field cố định dù record
+# không gắn với page, before/after image hoặc redo_lsn cụ thể.
 NO_PAGE = 0xFFFFFFFF
 NO_IMAGE = -1
 NO_LSN = 0
@@ -30,10 +38,10 @@ NO_LSN = 0
 
 @dataclass(frozen=True)
 class LogRecord:
-    """One fixed-size WAL entry.
+    """Một WAL entry có kích thước cố định.
 
-    The record stores both before and after images so the recovery manager can
-    apply the same log to either REDO committed updates or UNDO loser updates.
+    UPDATE record lưu cả before_image và after_image để recovery có thể REDO
+    transaction đã commit hoặc UNDO transaction abort/loser từ cùng một log.
     """
 
     record_type: RecordType
@@ -50,7 +58,7 @@ class LogRecord:
     SIZE = STRUCT.size
 
     def __post_init__(self) -> None:
-        # The binary format stores node_id as exactly one byte.
+        # Binary format chỉ dành đúng 1 byte cho node_id để record luôn cố định.
         if self.lsn < 0:
             raise ValueError("lsn must be non-negative")
         if len(self.node_id) != 1 or ord(self.node_id) > 255:
@@ -82,7 +90,8 @@ class LogRecord:
         )
 
     def pack(self) -> bytes:
-        """Serialize this record to the on-disk WAL representation."""
+        """Đóng gói record thành bytes để ghi xuống WAL file."""
+        # None không ghi trực tiếp được vào struct, nên đổi sang sentinel.
         page_id = NO_PAGE if self.page_id is None else self.page_id
         return self.STRUCT.pack(
             MAGIC,
@@ -100,7 +109,7 @@ class LogRecord:
 
     @classmethod
     def unpack(cls, data: bytes) -> "LogRecord":
-        """Parse one fixed-size WAL record and validate its magic/version."""
+        """Đọc một record nhị phân và kiểm tra magic/version để phát hiện sai format."""
         if len(data) != cls.SIZE:
             raise ValueError(f"expected {cls.SIZE} bytes, got {len(data)}")
 
@@ -137,7 +146,7 @@ class LogRecord:
 
 
 class WalWriter:
-    """Append-only WAL writer that assigns monotonically increasing LSNs."""
+    """Writer append-only; mỗi lần append tự cấp LSN tăng dần."""
 
     def __init__(self, path: str | Path, node_id: str = "A") -> None:
         self.path = Path(path)
@@ -159,7 +168,7 @@ class WalWriter:
         after_image: int = NO_IMAGE,
         redo_lsn: int = NO_LSN,
     ) -> LogRecord:
-        """Append one logical record and return the in-memory representation."""
+        """Ghi một record xuống file và trả lại object để caller có thể stream ra UI."""
         record = LogRecord.create(
             record_type,
             self._next_lsn,
@@ -176,7 +185,7 @@ class WalWriter:
         return record
 
     def _discover_next_lsn(self) -> int:
-        """Continue from an existing aligned WAL file, or start at LSN 1."""
+        """Tìm LSN tiếp theo khi mở lại WAL cũ, dùng cho live append sau Apply Config."""
         if not self.path.exists():
             return 1
         size = self.path.stat().st_size
@@ -186,7 +195,7 @@ class WalWriter:
 
 
 def iter_log_records(path: str | Path) -> Iterable[LogRecord]:
-    """Yield records from a WAL file if it exists."""
+    """Duyệt tuần tự WAL file; recovery và log inspector dùng chung hàm này."""
     file_path = Path(path)
     if not file_path.exists():
         return
@@ -196,7 +205,7 @@ def iter_log_records(path: str | Path) -> Iterable[LogRecord]:
 
 
 def iter_log_records_from_file(fh: BinaryIO) -> Iterable[LogRecord]:
-    """Stream fixed-size WAL chunks from an already-open binary file."""
+    """Đọc từng chunk đúng LogRecord.SIZE để phát hiện file WAL bị truncate."""
     while chunk := fh.read(LogRecord.SIZE):
         if len(chunk) != LogRecord.SIZE:
             raise ValueError("truncated log record")

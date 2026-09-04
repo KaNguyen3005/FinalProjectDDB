@@ -1,5 +1,7 @@
 import { connect, on } from "./ws-client.js";
 
+// Logic chính của trang /demo: điều khiển Apply Config, Load Scenario, Crash,
+// Recover và render live WAL/recovery event nhận từ WebSocket.
 const API_ORIGIN = location.protocol === "file:" ? "http://127.0.0.1:8000" : location.origin;
 const apiUrl = (path) => `${API_ORIGIN}${path}`;
 
@@ -44,7 +46,7 @@ function formatTime(ms) {
 }
 
 function startStopwatch() {
-  // The stopwatch measures user-visible RTO from crash event to completion.
+  // Stopwatch đo RTO người dùng nhìn thấy: từ crash tới recovery complete.
   stopwatchStart = performance.now();
   clearInterval(stopwatchTimer);
   stopwatchTimer = setInterval(() => {
@@ -64,7 +66,7 @@ function resetStopwatch() {
 }
 
 function updateNodeCard(node, status, txn = 0, lsn = 0) {
-  // Node cards mirror backend node_status events from the demo router.
+  // Node card phản chiếu event node_status từ backend.
   const card = document.getElementById(`node-${node}`);
   if (!card) return;
   card.className = `node-card status-${status}`;
@@ -109,7 +111,7 @@ async function withBusyButton(button, label, task) {
 }
 
 function appendPhaseTimeline(event) {
-  // Recovery pass events are compacted into one readable timeline line.
+  // Gộp recovery pass thành một dòng timeline dễ đọc.
   const labels = {
     ANALYSIS: "Analysis",
     PARTIAL_REDO: "Partial Redo",
@@ -182,6 +184,7 @@ function appendCoordinatorLog(event) {
 }
 
 function renderLiveEvent(event, { hydrate = false } = {}) {
+  // Một renderer chung cho cả event realtime và event hydrate từ /recent-log.
   if (!event || !event.type) return;
   if (event.type === "log_entry") {
     appendLog(event);
@@ -241,6 +244,7 @@ function renderScenario(data) {
 }
 
 async function loadRecentLog() {
+  // Khi refresh/reconnect, UI đọc live history để không mất recovery event.
   const res = await fetch(apiUrl(`/api/demo/recent-log?limit=80&_=${Date.now()}`));
   const data = await res.json();
   logStream.textContent = "";
@@ -296,7 +300,7 @@ async function loadScenarios() {
 }
 
 async function loadSelectedScenario() {
-  // Loading a scenario regenerates WAL/snapshot data on the backend.
+  // Load Scenario sinh lại WAL/snapshot theo kịch bản dựng sẵn ở backend.
   await withBusyButton(btnLoadScenario, "Loading...", async () => {
     const scenarioId = scenarioSelect.value;
     resetDemoView("loading scenario...");
@@ -342,7 +346,7 @@ btnConfig.onclick = async () => {
 };
 
 async function crashNode() {
-  // Crash stops the backend WAL stream and freezes the current LSN.
+  // Crash dừng backend WAL stream và bắt đầu mốc đo RTO.
   timeline.textContent = "";
   recoveryState.textContent = "crashed";
   const targetNode = crashTargetSelect.value;
@@ -354,7 +358,7 @@ async function crashNode() {
 }
 
 async function recoverNode() {
-  // Recovery events are replayed through WebSocket after the backend run.
+  // Recovery chạy ở backend; event được replay qua WebSocket cho UI.
   recoveryState.textContent = "recovering";
   await fetch(apiUrl("/api/demo/recover"), { method: "POST" });
   await loadStatus();
@@ -400,7 +404,7 @@ btnCrash.onclick = crashNode;
 btnRecover.onclick = recoverNode;
 if (btnAutoDemo) {
   btnAutoDemo.onclick = async () => {
-    // Optional legacy control: run a compact load -> crash -> recover flow.
+    // Control phụ: chạy nhanh chuỗi load -> crash -> recover.
     await loadSelectedScenario();
     await sleep(300);
     await crashNode();

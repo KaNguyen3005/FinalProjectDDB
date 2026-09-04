@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Thuật toán crash recovery cho WAL simulator.
+
+RecoveryManager là phần cốt lõi: đọc WAL, xác định checkpoint hợp lệ, REDO
+transaction đã commit, UNDO transaction chưa hoàn tất/abort và xử lý 2PC
+in-doubt transaction thông qua coordinator simulator.
+"""
+
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -15,6 +22,8 @@ CoordinatorResolver = Callable[[int], str | None]
 
 @dataclass
 class RecoveryResult:
+    """Kết quả tổng hợp sau recovery để API/UI/benchmark dùng chung."""
+
     rto_seconds: float
     redo_lsn: int
     committed: set[int] = field(default_factory=set)
@@ -29,11 +38,11 @@ class RecoveryResult:
 
 class RecoveryManager:
     """
-    Implements WAL recovery using the terminology required by the roadmap:
-    Analysis, Partial Redo, and Global Undo.
+    Cài đặt WAL recovery theo thuật ngữ của roadmap:
+    Analysis, Partial Redo và Global Undo.
 
-    PREPARE/READY transactions without a final COMMIT/ABORT are marked
-    IN_DOUBT and are not unilaterally undone.
+    Transaction PREPARE/READY nhưng chưa có COMMIT/ABORT sẽ là IN_DOUBT;
+    recovery không tự ý undo mà hỏi coordinator nếu có.
     """
 
     def recover(
@@ -43,16 +52,16 @@ class RecoveryManager:
         event_cb: EventCallback | None = None,
         coordinator_resolver: CoordinatorResolver | None = None,
     ) -> RecoveryResult:
-        """Run the full crash recovery workflow and return measured RTO data."""
+        """Chạy toàn bộ recovery workflow và trả về số liệu RTO."""
         t0 = time.perf_counter()
         records = list(iter_log_records(log_path))
 
-        # Recovery is intentionally split into named passes to match the report
-        # terminology and to make UI event playback easy to follow.
+        # Chia recovery thành các pass rõ ràng để UI có thể replay từng pha.
         redo_lsn, txn_state, records_scanned = self._analysis_pass(records, event_cb)
         checkpoint_failure_detected = self._detect_checkpoint_failure(records, redo_lsn, event_cb)
         records_redone = self._partial_redo(records, redo_lsn, txn_state, snapshot_path, event_cb)
         records_undone, undone = self._global_undo(records, redo_lsn, txn_state, snapshot_path, event_cb)
+        # In-doubt được xử lý sau REDO/UNDO thường vì nó cần quyết định coordinator.
         in_doubt = {txn_id for txn_id, state in txn_state.items() if state == "IN_DOUBT"}
         self._handle_in_doubt(in_doubt, event_cb)
         coordinator_decisions, resolved_redo, resolved_undo = self._resolve_in_doubt(
@@ -93,7 +102,7 @@ class RecoveryManager:
         records: list[LogRecord],
         event_cb: EventCallback | None,
     ) -> tuple[int, dict[int, str], int]:
-        """Find the redo start point and classify transaction outcomes."""
+        """Tìm redo_lsn và phân loại transaction trong vùng sau checkpoint."""
         self._emit(event_cb, {"type": "recovery_pass", "pass": "ANALYSIS", "progress": 0.0})
         redo_lsn = self._last_checkpoint_redo_lsn(records)
         txn_state: dict[int, str] = {}
@@ -105,8 +114,8 @@ class RecoveryManager:
             scanned += 1
             if record.txn_id == 0:
                 continue
-            # The latest terminal record wins. A START is a loser until a later
-            # COMMIT/ABORT/PREPARE changes how recovery should treat it.
+            # Trạng thái cuối cùng quyết định cách recovery xử lý transaction.
+            # START mặc định là LOSER cho tới khi gặp COMMIT/ABORT/PREPARE.
             if record.record_type == RecordType.START:
                 txn_state[record.txn_id] = "LOSER"
             elif record.record_type == RecordType.PREPARE:
@@ -136,7 +145,7 @@ class RecoveryManager:
         redo_lsn: int,
         event_cb: EventCallback | None,
     ) -> bool:
-        """Detect a BEGIN_CHECKPOINT that crashed before END_CHECKPOINT."""
+        """Phát hiện checkpoint dở dang: có BEGIN cuối nhưng thiếu END hợp lệ."""
         last_begin_lsn: int | None = None
         last_end_lsn: int | None = None
 
@@ -172,9 +181,10 @@ class RecoveryManager:
         snapshot_path: str | Path,
         event_cb: EventCallback | None,
     ) -> int:
-        """Replay committed updates from the redo point forward."""
+        """REDO các UPDATE của transaction đã commit từ redo_lsn trở đi."""
         redone = 0
         for record in records:
+            # Chỉ UPDATE của transaction COMMITTED mới cần redo.
             if record.lsn < redo_lsn:
                 continue
             if record.record_type != RecordType.UPDATE:
@@ -222,7 +232,7 @@ class RecoveryManager:
         snapshot_path: str | Path,
         event_cb: EventCallback | None,
     ) -> tuple[int, set[int]]:
-        """Rollback aborted and loser transactions in reverse LSN order."""
+        """UNDO transaction aborted/loser theo thứ tự LSN giảm dần."""
         undo_txns = {
             txn_id
             for txn_id, state in txn_state.items()
@@ -230,6 +240,7 @@ class RecoveryManager:
         }
         undone_records = 0
         for record in reversed(records):
+            # Đi ngược log để khôi phục before_image theo thứ tự rollback đúng.
             if record.lsn < redo_lsn:
                 continue
             if record.record_type != RecordType.UPDATE:
@@ -270,7 +281,7 @@ class RecoveryManager:
         return undone_records, undo_txns
 
     def _handle_in_doubt(self, txn_ids: set[int], event_cb: EventCallback | None) -> None:
-        """Emit UI-facing events for prepared transactions without a decision."""
+        """Emit event để UI thấy transaction đang chờ quyết định coordinator."""
         for txn_id in sorted(txn_ids):
             self._emit(
                 event_cb,
@@ -290,7 +301,7 @@ class RecoveryManager:
         coordinator_resolver: CoordinatorResolver | None,
         event_cb: EventCallback | None,
     ) -> tuple[dict[int, str], int, int]:
-        """Ask the coordinator simulator for final 2PC decisions when present."""
+        """Hỏi coordinator simulator quyết định cuối cho transaction 2PC."""
         if not txn_ids or coordinator_resolver is None:
             return {}, 0, 0
 
@@ -339,8 +350,8 @@ class RecoveryManager:
                 and record.record_type == RecordType.UPDATE
                 and record.page_id is not None
             ]
-            # Coordinator COMMIT makes the participant redo its prepared work;
-            # coordinator ABORT makes it undo the same records in reverse order.
+            # COMMIT từ coordinator nghĩa là participant phải giữ/redo work.
+            # ABORT từ coordinator nghĩa là rollback các UPDATE đã prepare.
             if decision == "COMMIT":
                 for record in txn_records:
                     write_page(snapshot_path, record.page_id, record.after_image)
@@ -382,12 +393,13 @@ class RecoveryManager:
         )
 
     def _last_checkpoint_redo_lsn(self, records: list[LogRecord]) -> int:
-        """Return the redo LSN from the latest complete checkpoint."""
+        """Lấy redo_lsn từ END_CHECKPOINT mới nhất; không có thì scan từ đầu."""
         for record in reversed(records):
             if record.record_type == RecordType.END_CHECKPOINT:
                 return record.redo_lsn or record.lsn + 1
         return 1
 
     def _emit(self, event_cb: EventCallback | None, event: dict) -> None:
+        # event_cb là cầu nối để API thu event và WebSocket replay cho UI.
         if event_cb:
             event_cb(event)

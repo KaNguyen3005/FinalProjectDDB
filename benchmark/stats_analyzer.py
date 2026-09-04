@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Tổng hợp raw benchmark JSON thành summary thống kê theo checkpoint interval."""
+
 import csv
 import json
 import statistics

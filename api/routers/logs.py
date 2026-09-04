@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""API phục vụ màn hình WAL Log Inspector."""
+
 import asyncio
 import json
 from pathlib import Path
@@ -15,7 +17,7 @@ router = APIRouter(prefix="/api/logs", tags=["logs"])
 
 
 def serialize_record(record: LogRecord) -> dict:
-    """Convert a binary WAL record to a JSON-safe API shape."""
+    """Đổi LogRecord nhị phân sang JSON để browser hiển thị được."""
     return {
         "lsn": record.lsn,
         "txn_id": record.txn_id,
@@ -31,7 +33,7 @@ def serialize_record(record: LogRecord) -> dict:
 
 @router.get("/records")
 def records(node: str | None = None, offset: int = 0, limit: int = 100) -> dict:
-    """Return a paged slice of the current demo WAL file."""
+    """Trả về một trang record WAL hiện tại, có thể lọc theo node."""
     path = demo_state.log_path
     all_records = list(iter_log_records(path)) if path.exists() else []
     if node:
@@ -47,8 +49,9 @@ def records(node: str | None = None, offset: int = 0, limit: int = 100) -> dict:
 
 @router.get("/stream")
 async def stream() -> StreamingResponse:
-    """Stream newly observed WAL records using Server-Sent Events."""
+    """Stream WAL record mới bằng SSE cho trang logs nếu cần theo dõi realtime."""
     async def event_source():
+        # seen lưu số record đã gửi để mỗi vòng chỉ emit phần mới append.
         path = Path(demo_state.log_path)
         seen = 0
         while True:
